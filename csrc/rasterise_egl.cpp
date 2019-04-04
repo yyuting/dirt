@@ -355,8 +355,6 @@ public:
             Tensor *pixels_tensor = nullptr;
             OP_REQUIRES_OK(context, context->allocate_output(0, TensorShape{batch_size, objects.frame_height, objects.frame_width, 8}, &pixels_tensor));
 
-            LOG(INFO) << "object channel is " << objects.channels;
-
 #ifdef TIME_SECTIONS
             auto const time_A = std::chrono::high_resolution_clock::now();
 #endif
@@ -412,8 +410,10 @@ public:
                 LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
             if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array1, objects.pixels_resources[1], 0, 0))
                 LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
+
+
             launch_pixels_download(*pixels_tensor, tiled_pixels_array, tiled_pixels_array1, objects.buffer_height, objects.buffer_width, device);
-            if (auto const err = cudaGraphicsUnmapResources(1, objects.pixels_resources, device.stream()))
+            if (auto const err = cudaGraphicsUnmapResources(2, objects.pixels_resources, device.stream()))
                 LOG(FATAL) << "cudaGraphicsUnmapResources failed" << cudaGetErrorName(err);
 
 #ifdef TIME_SECTIONS
