@@ -67,7 +67,7 @@ void launch_background_upload(
         LOG(FATAL) << "cudaDestroySurfaceObject failed: " << cudaGetErrorName(err);
 }
 
-__global__ void download_pixels(TTypes<float, 4>::Tensor pixels, cudaSurfaceObject_t const src_surface, cudaSurfaceObject_t const src_surface1, int const frames_per_row, dim3 const total_threads)
+__global__ void download_pixels(TTypes<float, 4>::Tensor pixels, cudaSurfaceObject_t const src_surface, cudaSurfaceObject_t const src_surface1, cudaSurfaceObject_t const src_surface2, cudaSurfaceObject_t const src_surface3, cudaSurfaceObject_t const src_surface4, cudaSurfaceObject_t const src_surface5, cudaSurfaceObject_t const src_surface6, cudaSurfaceObject_t const src_surface7, int const frames_per_row, dim3 const total_threads)
 {
     auto const batch_size = pixels.dimension(0);
     auto const frame_height = pixels.dimension(1);
@@ -81,6 +81,12 @@ __global__ void download_pixels(TTypes<float, 4>::Tensor pixels, cudaSurfaceObje
 
                 auto const pixel = surf2Dread<float4>(src_surface, src_x * 16, src_y);  // *16 is required because surface-loads use byte addressing (!)
                 auto const pixel1 = surf2Dread<float4>(src_surface1, src_x * 16, src_y);  // *16 is required because surface-loads use byte addressing (!)
+                auto const pixel2 = surf2Dread<float4>(src_surface2, src_x * 16, src_y);  // *16 is required because surface-loads use byte addressing (!)
+                auto const pixel3 = surf2Dread<float4>(src_surface3, src_x * 16, src_y);  // *16 is required because surface-loads use byte addressing (!)
+                auto const pixel4 = surf2Dread<float4>(src_surface4, src_x * 16, src_y);  // *16 is required because surface-loads use byte addressing (!)
+                auto const pixel5 = surf2Dread<float4>(src_surface5, src_x * 16, src_y);  // *16 is required because surface-loads use byte addressing (!)
+                auto const pixel6 = surf2Dread<float4>(src_surface6, src_x * 16, src_y);  // *16 is required because surface-loads use byte addressing (!)
+                auto const pixel7 = surf2Dread<float4>(src_surface7, src_x * 16, src_y);  // *16 is required because surface-loads use byte addressing (!)
 
                 auto const x_in_frame = src_x % frame_width;
                 auto const y_in_frame = frame_height - 1 - src_y % frame_height;  // the vertical flip ensures that our images are top-row-first, as in tensorflow
@@ -92,13 +98,37 @@ __global__ void download_pixels(TTypes<float, 4>::Tensor pixels, cudaSurfaceObje
                 pixels(iib, y_in_frame, x_in_frame, 5) = pixel1.y;
                 pixels(iib, y_in_frame, x_in_frame, 6) = pixel1.z;
                 pixels(iib, y_in_frame, x_in_frame, 7) = pixel1.w;
+                pixels(iib, y_in_frame, x_in_frame, 8) = pixel2.x;
+                pixels(iib, y_in_frame, x_in_frame, 9) = pixel2.y;
+                pixels(iib, y_in_frame, x_in_frame, 10) = pixel2.z;
+                pixels(iib, y_in_frame, x_in_frame, 11) = pixel2.w;
+                pixels(iib, y_in_frame, x_in_frame, 12) = pixel3.x;
+                pixels(iib, y_in_frame, x_in_frame, 13) = pixel3.y;
+                pixels(iib, y_in_frame, x_in_frame, 14) = pixel3.z;
+                pixels(iib, y_in_frame, x_in_frame, 15) = pixel3.w;
+                pixels(iib, y_in_frame, x_in_frame, 16) = pixel4.x;
+                pixels(iib, y_in_frame, x_in_frame, 17) = pixel4.y;
+                pixels(iib, y_in_frame, x_in_frame, 18) = pixel4.z;
+                pixels(iib, y_in_frame, x_in_frame, 19) = pixel4.w;
+                pixels(iib, y_in_frame, x_in_frame, 20) = pixel5.x;
+                pixels(iib, y_in_frame, x_in_frame, 21) = pixel5.y;
+                pixels(iib, y_in_frame, x_in_frame, 22) = pixel5.z;
+                pixels(iib, y_in_frame, x_in_frame, 23) = pixel5.w;
+                pixels(iib, y_in_frame, x_in_frame, 24) = pixel6.x;
+                pixels(iib, y_in_frame, x_in_frame, 25) = pixel6.y;
+                pixels(iib, y_in_frame, x_in_frame, 26) = pixel6.z;
+                pixels(iib, y_in_frame, x_in_frame, 27) = pixel6.w;
+                pixels(iib, y_in_frame, x_in_frame, 28) = pixel7.x;
+                pixels(iib, y_in_frame, x_in_frame, 29) = pixel7.y;
+                pixels(iib, y_in_frame, x_in_frame, 30) = pixel7.z;
+                pixels(iib, y_in_frame, x_in_frame, 31) = pixel7.w;
             }
         }
     }
 }
 
 void launch_pixels_download(
-    Tensor &dest_tensor, cudaArray_t const &src_array, cudaArray_t const &src_array1,
+    Tensor &dest_tensor, cudaArray_t const &src_array, cudaArray_t const &src_array1, cudaArray_t const &src_array2, cudaArray_t const &src_array3, cudaArray_t const &src_array4, cudaArray_t const &src_array5, cudaArray_t const &src_array6, cudaArray_t const &src_array7,
     int const src_height, int const src_width,
     Eigen::GpuDevice const &device
 ) {
@@ -116,11 +146,54 @@ void launch_pixels_download(
     if (auto const err = cudaCreateSurfaceObject(&src_surface1, &src_resource_descriptor1))
         LOG(FATAL) << "cudaCreateSurfaceObject failed: " << cudaGetErrorName(err);
 
+    cudaResourceDesc src_resource_descriptor2;
+    src_resource_descriptor2.resType = cudaResourceTypeArray;
+    src_resource_descriptor2.res.array.array = src_array2;
+    cudaSurfaceObject_t src_surface2;
+    if (auto const err = cudaCreateSurfaceObject(&src_surface2, &src_resource_descriptor2))
+        LOG(FATAL) << "cudaCreateSurfaceObject failed: " << cudaGetErrorName(err);
+
+    cudaResourceDesc src_resource_descriptor3;
+    src_resource_descriptor3.resType = cudaResourceTypeArray;
+    src_resource_descriptor3.res.array.array = src_array3;
+    cudaSurfaceObject_t src_surface3;
+    if (auto const err = cudaCreateSurfaceObject(&src_surface3, &src_resource_descriptor3))
+        LOG(FATAL) << "cudaCreateSurfaceObject failed: " << cudaGetErrorName(err);
+
+    cudaResourceDesc src_resource_descriptor4;
+    src_resource_descriptor4.resType = cudaResourceTypeArray;
+    src_resource_descriptor4.res.array.array = src_array4;
+    cudaSurfaceObject_t src_surface4;
+    if (auto const err = cudaCreateSurfaceObject(&src_surface4, &src_resource_descriptor4))
+        LOG(FATAL) << "cudaCreateSurfaceObject failed: " << cudaGetErrorName(err);
+
+    cudaResourceDesc src_resource_descriptor5;
+    src_resource_descriptor5.resType = cudaResourceTypeArray;
+    src_resource_descriptor5.res.array.array = src_array5;
+    cudaSurfaceObject_t src_surface5;
+    if (auto const err = cudaCreateSurfaceObject(&src_surface5, &src_resource_descriptor5))
+        LOG(FATAL) << "cudaCreateSurfaceObject failed: " << cudaGetErrorName(err);
+
+    cudaResourceDesc src_resource_descriptor6;
+    src_resource_descriptor6.resType = cudaResourceTypeArray;
+    src_resource_descriptor6.res.array.array = src_array6;
+    cudaSurfaceObject_t src_surface6;
+    if (auto const err = cudaCreateSurfaceObject(&src_surface6, &src_resource_descriptor6))
+        LOG(FATAL) << "cudaCreateSurfaceObject failed: " << cudaGetErrorName(err);
+
+    cudaResourceDesc src_resource_descriptor7;
+    src_resource_descriptor7.resType = cudaResourceTypeArray;
+    src_resource_descriptor7.res.array.array = src_array7;
+    cudaSurfaceObject_t src_surface7;
+    if (auto const err = cudaCreateSurfaceObject(&src_surface7, &src_resource_descriptor7))
+        LOG(FATAL) << "cudaCreateSurfaceObject failed: " << cudaGetErrorName(err);
+
+
     auto const config = GetCuda2DLaunchConfig(src_width, src_height, device);
     auto dest = dest_tensor.tensor<float, 4>();
     download_pixels<<<config.block_count, config.thread_per_block, 0, device.stream()>>>(
         dest,
-        src_surface, src_surface1,
+        src_surface, src_surface1, src_surface2, src_surface3, src_surface4, src_surface5, src_surface6, src_surface7,
         src_width / dest_tensor.dim_size(2),
         config.virtual_thread_count
     );
