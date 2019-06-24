@@ -18,16 +18,12 @@ shaders::Shader const shaders::forward_vertex {
 
 layout(location = 0) in vec4 position;
 layout(location = 1) in vec3 colour_in;
-layout(location = 0) in vec2 texCoord;
 
 layout(location = 0) smooth out vec3 colour_out;
-layout(location = 1) out vec2 texCoordv;
-
 
 void main() {
     gl_Position = position;
     colour_out = colour_in;
-    texCoordv = texCoord;
 }
 
 )glsl"
@@ -37,18 +33,10 @@ shaders::Shader const shaders::forward_fragment{
     "forward_fragment", GL_FRAGMENT_SHADER, HEADER R"glsl(
 
 layout(location = 0) smooth in vec3 colour_in;
-layout(location = 1) in vec2 texCoordV;
 layout(location = 0) out vec4 colour_out;
-layout(location = 1) out vec4 trace;
 
 void main() {
-    trace.xy = (texCoordV + 1.0) * 5.0;
-    trace.zw = fract(trace.xy) - 0.5;
-    colour_out.w = 1.0;
-    if (trace.z * trace.w < 0)
-      colour_out.xyz = vec3(1.0);
-    else
-      colour_out.xyz = vec3(0.0);
+    colour_out = vec4(colour_in, 1.f);
 }
 
 )glsl"
@@ -89,3 +77,4 @@ void main() {
 
 )glsl"
 };
+

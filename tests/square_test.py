@@ -2,7 +2,6 @@
 import numpy as np
 import tensorflow as tf
 import dirt
-import skimage.io
 
 canvas_width, canvas_height = 128, 128
 centre_x, centre_y = 32, 64
@@ -31,10 +30,10 @@ def get_dirt_pixels():
     return dirt.rasterise(
         vertices=square_vertices,
         faces=[[0, 1, 2], [0, 2, 3]],
-        vertex_colors=tf.ones([4, 3]),
-        background=tf.zeros([canvas_height, canvas_width, 3]),
-        height=canvas_height, width=canvas_width, channels=3
-    )
+        vertex_colors=tf.ones([4, 1]),
+        background=tf.zeros([canvas_height, canvas_width, 1]),
+        height=canvas_height, width=canvas_width, channels=1
+    )[:, :, 0]
 
 
 def main():
@@ -42,18 +41,15 @@ def main():
     session = tf.Session()
     with session.as_default():
 
+        non_dirt_pixels = get_non_dirt_pixels().eval()
         dirt_pixels = get_dirt_pixels().eval()
-        #dirt_gt = get_non_dirt_pixels().eval()
-        print(np.sum(dirt_pixels))
-        print(dirt_pixels)
-        if dirt_pixels.shape[2] <= 4:
-            skimage.io.imsave('test.png', np.clip(dirt_pixels, 0.0, 1.0))
-        elif dirt_pixels.shape[2] == 8:
-            # check if checkerboard trace is correct
-            assert np.allclose(np.modf(dirt_pixels[:, :, 4:6])[0] - 0.5, dirt_pixels[:, :, 6:])
-            assert np.allclose(dirt_pixels[:, :, 0], dirt_pixels[:, :, 6] * dirt_pixels[:, :, 7] < 0)
-            assert np.allclose(dirt_pixels[:, :, 1], dirt_pixels[:, :, 6] * dirt_pixels[:, :, 7] < 0)
-            assert np.allclose(dirt_pixels[:, :, 2], dirt_pixels[:, :, 6] * dirt_pixels[:, :, 7] < 0)
+
+        if np.all(non_dirt_pixels == dirt_pixels):
+            print 'successful: all pixels agree'
+        else:
+            print 'failed: {} pixels disagree'.format(np.sum(non_dirt_pixels != dirt_pixels))
+
 
 if __name__ == '__main__':
     main()
+
