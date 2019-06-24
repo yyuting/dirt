@@ -2,6 +2,7 @@
 import numpy as np
 import tensorflow as tf
 import dirt
+import skimage.io
 
 canvas_width, canvas_height = 128, 128
 centre_x, centre_y = 32, 64
@@ -41,13 +42,15 @@ def main():
     session = tf.Session()
     with session.as_default():
 
+        dirt_node = get_dirt_pixels()
         non_dirt_pixels = get_non_dirt_pixels().eval()
-        dirt_pixels = get_dirt_pixels().eval()
-
-        if np.all(non_dirt_pixels == dirt_pixels):
-            print 'successful: all pixels agree'
-        else:
-            print 'failed: {} pixels disagree'.format(np.sum(non_dirt_pixels != dirt_pixels))
+        for i in range(10):
+            dirt_pixels = dirt_node.eval()
+            skimage.io.imsave('%d.png' % i, dirt_pixels)
+            if np.allclose(non_dirt_pixels,dirt_pixels):
+                print('successful: all pixels agree')
+            else:
+                print('failed: {} pixels disagree'.format(np.sum(non_dirt_pixels != dirt_pixels)))
 
 
 if __name__ == '__main__':
