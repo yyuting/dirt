@@ -16,8 +16,7 @@ namespace shaders
         forward_vertex,
         forward_fragment,
         backward_vertex,
-        backward_fragment,
-        oceanic;
+        backward_fragment;
 }
 
 #endif //SHADERS_H

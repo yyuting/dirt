@@ -123,7 +123,7 @@ void launch_background_upload(
 );
 
 void launch_pixels_download(
-    Tensor &dest_tensor, cudaArray_t const &src_array,
+    Tensor &dest_tensor, cudaArray_t const &src_array, cudaArray_t const &src_array1, cudaArray_t const &src_array2, cudaArray_t const &src_array3, cudaArray_t const &src_array4, cudaArray_t const &src_array5, cudaArray_t const &src_array6, cudaArray_t const &src_array7,
     int const src_height, int const src_width,
     Eigen::GpuDevice const &device
 );
@@ -145,8 +145,8 @@ class RasteriseOpGpu : public OpKernel
         RegisteredBuffer vertexbuffer, colourbuffer;
         RegisteredBuffer elementbuffer;
         GLuint program;
-        GLuint pixels_texture;
-        cudaGraphicsResource_t pixels_resource;  // ** can we use RegisteredTexture from the grad code instead?
+        GLuint pixels_texture, pixels_texture1, pixels_texture2, pixels_texture3, pixels_texture4, pixels_texture5, pixels_texture6, pixels_texture7;
+        cudaGraphicsResource_t pixels_resources[8];  // ** can we use RegisteredTexture from the grad code instead?
         CUcontext cuda_context;  // this is nullptr iff the thread-objects have not yet been initialised
     };
 
@@ -180,15 +180,15 @@ class RasteriseOpGpu : public OpKernel
         gl_common::initialise_context(active_cuda_device);
 
         objects.buffer_height = objects.buffer_width = 0;
-        objects.framebuffer = objects.pixels_texture = objects.depth_buffer = 0;
-        objects.pixels_resource =nullptr;
+        objects.framebuffer = objects.pixels_texture = objects.depth_buffer = objects.pixels_texture1 = objects.pixels_texture2 = objects.pixels_texture3 = objects.pixels_texture4 = objects.pixels_texture5 = objects.pixels_texture6 = objects.pixels_texture7 = 0;
+        objects.pixels_resources[0] = objects.pixels_resources[1] = objects.pixels_resources[2] = objects.pixels_resources[3] = objects.pixels_resources[4] = objects.pixels_resources[5] = objects.pixels_resources[6] = objects.pixels_resources[7] =nullptr;
 
         // ** The shaders we initialise here would preferably be global, not per-thread. However, that requires
         // ** fancier synchronisation to ensure everything is set up (and stored somewhere) before use
 
         // Load and compile the vertex and fragment shaders
         GLuint const tri_vertex_shader = gl_common::create_shader(shaders::forward_vertex);
-        GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic);
+        GLuint const tri_fragment_shader = gl_common::create_shader(shaders::forward_fragment);
 
         // Link the vertex & fragment shaders
         objects.program = glCreateProgram();
@@ -232,8 +232,8 @@ class RasteriseOpGpu : public OpKernel
         GLuint framebuffer;
         glGenFramebuffers(1, &framebuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        GLenum draw_buffers[] = {GL_COLOR_ATTACHMENT0};
-        glDrawBuffers(1, draw_buffers);  // map fragment-shader output locations to framebuffer attachments
+        GLenum draw_buffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3, GL_COLOR_ATTACHMENT4, GL_COLOR_ATTACHMENT5, GL_COLOR_ATTACHMENT6, GL_COLOR_ATTACHMENT7};
+        glDrawBuffers(8, draw_buffers);  // map fragment-shader output locations to framebuffer attachments
         if (auto err = glGetError())
             LOG(FATAL) << "framebuffer creation failed: " << err;
 
@@ -243,6 +243,62 @@ class RasteriseOpGpu : public OpKernel
         glBindTexture(GL_TEXTURE_2D, pixels_texture);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, pixels_texture, 0);
+        if (auto err = glGetError())
+            LOG(FATAL) << "pixel buffer initialisation failed: " << err;
+
+        GLuint pixels_texture1;
+        glGenTextures(1, &pixels_texture1);
+        glBindTexture(GL_TEXTURE_2D, pixels_texture1);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, pixels_texture1, 0);
+        if (auto err = glGetError())
+            LOG(FATAL) << "pixel buffer initialisation failed: " << err;
+
+        GLuint pixels_texture2;
+        glGenTextures(1, &pixels_texture2);
+        glBindTexture(GL_TEXTURE_2D, pixels_texture2);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, pixels_texture2, 0);
+        if (auto err = glGetError())
+            LOG(FATAL) << "pixel buffer initialisation failed: " << err;
+
+        GLuint pixels_texture3;
+        glGenTextures(1, &pixels_texture3);
+        glBindTexture(GL_TEXTURE_2D, pixels_texture3);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, pixels_texture3, 0);
+        if (auto err = glGetError())
+            LOG(FATAL) << "pixel buffer initialisation failed: " << err;
+
+        GLuint pixels_texture4;
+        glGenTextures(1, &pixels_texture4);
+        glBindTexture(GL_TEXTURE_2D, pixels_texture4);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT4, GL_TEXTURE_2D, pixels_texture4, 0);
+        if (auto err = glGetError())
+            LOG(FATAL) << "pixel buffer initialisation failed: " << err;
+
+        GLuint pixels_texture5;
+        glGenTextures(1, &pixels_texture5);
+        glBindTexture(GL_TEXTURE_2D, pixels_texture5);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT5, GL_TEXTURE_2D, pixels_texture5, 0);
+        if (auto err = glGetError())
+            LOG(FATAL) << "pixel buffer initialisation failed: " << err;
+
+        GLuint pixels_texture6;
+        glGenTextures(1, &pixels_texture6);
+        glBindTexture(GL_TEXTURE_2D, pixels_texture6);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT6, GL_TEXTURE_2D, pixels_texture6, 0);
+        if (auto err = glGetError())
+            LOG(FATAL) << "pixel buffer initialisation failed: " << err;
+
+        GLuint pixels_texture7;
+        glGenTextures(1, &pixels_texture7);
+        glBindTexture(GL_TEXTURE_2D, pixels_texture7);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT7, GL_TEXTURE_2D, pixels_texture7, 0);
         if (auto err = glGetError())
             LOG(FATAL) << "pixel buffer initialisation failed: " << err;
 
@@ -256,21 +312,79 @@ class RasteriseOpGpu : public OpKernel
             LOG(FATAL) << "depth buffer initialisation failed: " << err;
 
         // Register the pixels texture as a cuda graphics resource
-        cudaGraphicsResource_t pixels_resource;
-        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource, pixels_texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+        cudaGraphicsResource_t pixels_resources[8];
+        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resources[0], pixels_texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
             LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
 
-        // Delete previous buffers, and store new ones in thread-objects
-        if (objects.pixels_resource)
-            cudaGraphicsUnregisterResource(objects.pixels_resource);
+        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resources[1], pixels_texture1, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
 
+        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resources[2], pixels_texture2, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
+
+        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resources[3], pixels_texture3, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
+
+        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resources[4], pixels_texture4, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
+
+        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resources[5], pixels_texture5, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
+
+        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resources[6], pixels_texture6, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
+
+        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resources[7], pixels_texture7, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
+
+
+        // Delete previous buffers, and store new ones in thread-objects
+        if (objects.pixels_resources[0])
+            cudaGraphicsUnregisterResource(objects.pixels_resources[0]);
+        if (objects.pixels_resources[1])
+            cudaGraphicsUnregisterResource(objects.pixels_resources[1]);
+        if (objects.pixels_resources[2])
+            cudaGraphicsUnregisterResource(objects.pixels_resources[2]);
+        if (objects.pixels_resources[3])
+            cudaGraphicsUnregisterResource(objects.pixels_resources[3]);
+        if (objects.pixels_resources[4])
+            cudaGraphicsUnregisterResource(objects.pixels_resources[4]);
+        if (objects.pixels_resources[5])
+            cudaGraphicsUnregisterResource(objects.pixels_resources[5]);
+        if (objects.pixels_resources[6])
+            cudaGraphicsUnregisterResource(objects.pixels_resources[6]);
+        if (objects.pixels_resources[7])
+            cudaGraphicsUnregisterResource(objects.pixels_resources[7]);
         glDeleteFramebuffers(1, &objects.framebuffer);
         glDeleteTextures(1, &objects.pixels_texture);
+        glDeleteTextures(1, &objects.pixels_texture1);
+        glDeleteTextures(1, &objects.pixels_texture2);
+        glDeleteTextures(1, &objects.pixels_texture3);
+        glDeleteTextures(1, &objects.pixels_texture4);
+        glDeleteTextures(1, &objects.pixels_texture5);
+        glDeleteTextures(1, &objects.pixels_texture6);
+        glDeleteTextures(1, &objects.pixels_texture7);
         glDeleteRenderbuffers(1, &objects.depth_buffer);
         objects.framebuffer = framebuffer;
         objects.pixels_texture = pixels_texture;
+        objects.pixels_texture1 = pixels_texture1;
+        objects.pixels_texture2 = pixels_texture2;
+        objects.pixels_texture3 = pixels_texture3;
+        objects.pixels_texture4 = pixels_texture4;
+        objects.pixels_texture5 = pixels_texture5;
+        objects.pixels_texture6 = pixels_texture6;
+        objects.pixels_texture7 = pixels_texture7;
         objects.depth_buffer = depth_buffer;
-        objects.pixels_resource = pixels_resource;
+        objects.pixels_resources[0] = pixels_resources[0];
+        objects.pixels_resources[1] = pixels_resources[1];
+        objects.pixels_resources[2] = pixels_resources[2];
+        objects.pixels_resources[3] = pixels_resources[3];
+        objects.pixels_resources[4] = pixels_resources[4];
+        objects.pixels_resources[5] = pixels_resources[5];
+        objects.pixels_resources[6] = pixels_resources[6];
+        objects.pixels_resources[7] = pixels_resources[7];
+
+
 
         LOG(INFO) << "reinitialised framebuffer with size " << objects.buffer_width << " x " << objects.buffer_height;
     }
@@ -336,7 +450,7 @@ public:
             LOG(INFO) << "max draw buffer size is " << maxDrawBuf;
 
             Tensor *pixels_tensor = nullptr;
-            OP_REQUIRES_OK(context, context->allocate_output(0, TensorShape{batch_size, objects.frame_height, objects.frame_width, objects.channels}, &pixels_tensor));
+            OP_REQUIRES_OK(context, context->allocate_output(0, TensorShape{batch_size, objects.frame_height, objects.frame_width, 32}, &pixels_tensor));
 
 #ifdef TIME_SECTIONS
             auto const time_A = std::chrono::high_resolution_clock::now();
@@ -382,18 +496,33 @@ public:
             glFlush();
 
             // Map the pixel buffer and copy the background across
-            cudaArray_t tiled_pixels_array;
+            cudaArray_t tiled_pixels_array, tiled_pixels_array1, tiled_pixels_array2, tiled_pixels_array3, tiled_pixels_array4, tiled_pixels_array5, tiled_pixels_array6, tiled_pixels_array7;
 
             // Map the pixel buffer to a cuda array, and dispatch the cuda kernel to copy/rearrange pixels into the output tensor
             // Note that this needs to map / unmap every time, unlike vertex-buffer, as opengl modifies the pixels, which isn't allowed when mapped
 
-            if (auto const err = cudaGraphicsMapResources(1, &objects.pixels_resource, device.stream()))  // this also synchronises pending graphics calls with our stream
+            if (auto const err = cudaGraphicsMapResources(8, objects.pixels_resources, device.stream()))  // this also synchronises pending graphics calls with our stream
                 LOG(FATAL) << "cudaGraphicsMapResources failed: " << cudaGetErrorName(err);
-            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array, objects.pixels_resource, 0, 0))
+            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array, objects.pixels_resources[0], 0, 0))
+                LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
+            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array1, objects.pixels_resources[1], 0, 0))
+                LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
+            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array2, objects.pixels_resources[2], 0, 0))
+                LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
+            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array3, objects.pixels_resources[3], 0, 0))
+                LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
+            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array4, objects.pixels_resources[4], 0, 0))
+                LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
+            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array5, objects.pixels_resources[5], 0, 0))
+                LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
+            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array6, objects.pixels_resources[6], 0, 0))
+                LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
+            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array7, objects.pixels_resources[7], 0, 0))
                 LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
 
-            launch_pixels_download(*pixels_tensor, tiled_pixels_array, objects.buffer_height, objects.buffer_width, device);
-            if (auto const err = cudaGraphicsUnmapResources(1, &objects.pixels_resource, device.stream()))
+
+            launch_pixels_download(*pixels_tensor, tiled_pixels_array, tiled_pixels_array1, tiled_pixels_array2, tiled_pixels_array3, tiled_pixels_array4, tiled_pixels_array5, tiled_pixels_array6, tiled_pixels_array7, objects.buffer_height, objects.buffer_width, device);
+            if (auto const err = cudaGraphicsUnmapResources(8, objects.pixels_resources, device.stream()))
                 LOG(FATAL) << "cudaGraphicsUnmapResources failed" << cudaGetErrorName(err);
 
 #ifdef TIME_SECTIONS

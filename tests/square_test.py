@@ -4,8 +4,8 @@ import tensorflow as tf
 import dirt
 import skimage.io
 
-canvas_width, canvas_height = 960, 640
-centre_x, centre_y = 320, 480
+canvas_width, canvas_height = 128, 128
+centre_x, centre_y = 32, 64
 square_size = 16
 
 
@@ -46,7 +46,6 @@ def main():
         #dirt_gt = get_non_dirt_pixels().eval()
         print(np.sum(dirt_pixels))
         print(dirt_pixels)
-        print(dirt_pixels.shape)
         if dirt_pixels.shape[2] <= 4:
             skimage.io.imsave('test.png', np.clip(dirt_pixels, 0.0, 1.0))
         elif dirt_pixels.shape[2] > 8:
