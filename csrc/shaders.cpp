@@ -40,12 +40,6 @@ layout(location = 0) smooth in vec3 colour_in;
 layout(location = 1) in vec2 texCoordV;
 layout(location = 0) out vec4 colour_out;
 layout(location = 1) out vec4 trace;
-layout(location = 2) out vec4 trace2;
-layout(location = 3) out vec4 trace3;
-layout(location = 4) out vec4 trace4;
-layout(location = 5) out vec4 trace5;
-layout(location = 6) out vec4 trace6;
-layout(location = 7) out vec4 trace7;
 
 void main() {
     trace.xy = (texCoordV + 1.0) * 5.0;
@@ -55,12 +49,6 @@ void main() {
       colour_out.xyz = vec3(1.0);
     else
       colour_out.xyz = vec3(0.0);
-    trace2.xyzw = trace.xyzw;
-    trace3.xyzw = trace.xyzw;
-    trace4.xyzw = trace.xyzw;
-    trace5.xyzw = trace.xyzw;
-    trace6.xyzw = trace.xyzw;
-    trace7.xyzw = trace.xyzw;
 }
 
 )glsl"

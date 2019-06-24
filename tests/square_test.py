@@ -48,20 +48,12 @@ def main():
         print(dirt_pixels)
         if dirt_pixels.shape[2] <= 4:
             skimage.io.imsave('test.png', np.clip(dirt_pixels, 0.0, 1.0))
-        elif dirt_pixels.shape[2] > 8:
+        elif dirt_pixels.shape[2] == 8:
             # check if checkerboard trace is correct
-            assert np.allclose(np.modf(dirt_pixels[:, :, 4:6])[0] - 0.5, dirt_pixels[:, :, 6:8])
+            assert np.allclose(np.modf(dirt_pixels[:, :, 4:6])[0] - 0.5, dirt_pixels[:, :, 6:])
             assert np.allclose(dirt_pixels[:, :, 0], dirt_pixels[:, :, 6] * dirt_pixels[:, :, 7] < 0)
             assert np.allclose(dirt_pixels[:, :, 1], dirt_pixels[:, :, 6] * dirt_pixels[:, :, 7] < 0)
             assert np.allclose(dirt_pixels[:, :, 2], dirt_pixels[:, :, 6] * dirt_pixels[:, :, 7] < 0)
-
-        if dirt_pixels.shape[2] == 32:
-            assert np.allclose(dirt_pixels[:, :, 4:8], dirt_pixels[:, :, 8:12])
-            assert np.allclose(dirt_pixels[:, :, 4:8], dirt_pixels[:, :, 12:16])
-            assert np.allclose(dirt_pixels[:, :, 4:8], dirt_pixels[:, :, 16:20])
-            assert np.allclose(dirt_pixels[:, :, 4:8], dirt_pixels[:, :, 20:24])
-            assert np.allclose(dirt_pixels[:, :, 4:8], dirt_pixels[:, :, 24:28])
-            assert np.allclose(dirt_pixels[:, :, 4:8], dirt_pixels[:, :, 28:32])
 
 if __name__ == '__main__':
     main()
