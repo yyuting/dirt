@@ -4,7 +4,7 @@ import tensorflow as tf
 import dirt
 import skimage.io
 
-canvas_width, canvas_height = 128, 128
+canvas_width, canvas_height = 960, 640
 centre_x, centre_y = 32, 64
 square_size = 16
 
@@ -20,21 +20,15 @@ def get_non_dirt_pixels():
 
 def get_dirt_pixels():
 
-    # Build square in screen space
-    square_vertices = tf.constant([[0, 0], [0, 1], [1, 1], [1, 0]], dtype=tf.float32) * square_size - square_size / 2.
-    square_vertices += [centre_x, centre_y]
-
-    # Transform to homogeneous coordinates in clip space
-    square_vertices = square_vertices * 2. / [canvas_width, canvas_height] - 1.
-    square_vertices = tf.concat([square_vertices, tf.zeros([4, 1]), tf.ones([4, 1])], axis=1)
+    square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
 
     return dirt.rasterise(
         vertices=square_vertices,
         faces=[[0, 1, 2], [0, 2, 3]],
-        vertex_colors=tf.ones([4, 1]),
-        background=tf.zeros([canvas_height, canvas_width, 1]),
-        height=canvas_height, width=canvas_width, channels=1
-    )[:, :, 0]
+        vertex_colors=tf.ones([4, 3]),
+        background=tf.zeros([canvas_height, canvas_width, 3]),
+        height=canvas_height, width=canvas_width, channels=3
+    )
 
 
 def main():
@@ -43,15 +37,11 @@ def main():
     with session.as_default():
 
         dirt_node = get_dirt_pixels()
-        non_dirt_pixels = get_non_dirt_pixels().eval()
-        for i in range(10):
+        for i in range(2):
             dirt_pixels = dirt_node.eval()
-            skimage.io.imsave('%d.png' % i, dirt_pixels)
-            if np.allclose(non_dirt_pixels,dirt_pixels):
-                print('successful: all pixels agree')
-            else:
-                print('failed: {} pixels disagree'.format(np.sum(non_dirt_pixels != dirt_pixels)))
-
+            print(dirt_pixels.shape)
+            skimage.io.imsave('%d.png' % i, np.clip(dirt_pixels, 0.0, 1.0))
+            
 
 if __name__ == '__main__':
     main()

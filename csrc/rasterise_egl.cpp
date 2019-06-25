@@ -180,7 +180,7 @@ class RasteriseOpGpu : public OpKernel
 
         // Load and compile the vertex and fragment shaders
         GLuint const tri_vertex_shader = gl_common::create_shader(shaders::forward_vertex);
-        GLuint const tri_fragment_shader = gl_common::create_shader(shaders::forward_fragment);
+        GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic);
 
         // Link the vertex & fragment shaders
         objects.program = glCreateProgram();
