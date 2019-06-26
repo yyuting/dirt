@@ -136,8 +136,9 @@ class RasteriseOpGpu : public OpKernel
         GLuint framebuffer, depth_buffer;
         RegisteredBuffer vertexbuffer, colourbuffer;
         RegisteredBuffer elementbuffer;
-        GLuint program;
-        GLuint pixels_texture;
+        GLuint program, program2;
+        GLuint pixels_texture0, pixels_texture;
+        GLuint renderbuffer;
         cudaGraphicsResource_t pixels_resource;  // ** can we use RegisteredTexture from the grad code instead?
         CUcontext cuda_context;  // this is nullptr iff the thread-objects have not yet been initialised
     };
@@ -172,23 +173,13 @@ class RasteriseOpGpu : public OpKernel
         gl_common::initialise_context(active_cuda_device);
 
         objects.buffer_height = objects.buffer_width = 0;
-        objects.framebuffer = objects.pixels_texture = objects.depth_buffer = 0;
+        objects.framebuffer = objects.pixels_texture = objects.depth_buffer = objects.renderbuffer = 0;
         objects.pixels_resource = nullptr;
 
         // ** The shaders we initialise here would preferably be global, not per-thread. However, that requires
         // ** fancier synchronisation to ensure everything is set up (and stored somewhere) before use
 
-        // Load and compile the vertex and fragment shaders
-        GLuint const tri_vertex_shader = gl_common::create_shader(shaders::forward_vertex);
-        GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic);
-
-        // Link the vertex & fragment shaders
-        objects.program = glCreateProgram();
-        glAttachShader(objects.program, tri_vertex_shader);
-        glAttachShader(objects.program, tri_fragment_shader);
-        glLinkProgram(objects.program);
-        gl_common::print_log(glGetProgramInfoLog, glGetProgramiv, GL_LINK_STATUS, objects.program, "program");
-        glUseProgram(objects.program);
+        
 
         glGenBuffers(1, &objects.vertexbuffer.gl_index);
         glGenBuffers(1, &objects.colourbuffer.gl_index);
@@ -212,6 +203,7 @@ class RasteriseOpGpu : public OpKernel
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_SCISSOR_TEST);
+        
     }
 
     static void reinitialise_framebuffer(PerThreadObjects &objects)
@@ -224,20 +216,41 @@ class RasteriseOpGpu : public OpKernel
         GLuint framebuffer;
         glGenFramebuffers(1, &framebuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        GLenum draw_buffers[] = {GL_COLOR_ATTACHMENT0};
-        glDrawBuffers(1, draw_buffers);  // map fragment-shader output locations to framebuffer attachments
+        GLenum draw_buffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+        glDrawBuffers(2, draw_buffers);  // map fragment-shader output locations to framebuffer attachments
         if (auto err = glGetError())
             LOG(FATAL) << "framebuffer creation failed: " << err;
 
         // Set up an rgba texture for pixels
-        GLuint pixels_texture;
+        
+        GLuint pixels_texture0, pixels_texture;
+        glGenTextures(1, &pixels_texture0);
+        glBindTexture(GL_TEXTURE_2D, pixels_texture0);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
+        //glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, pixels_texture0, 0);
+        if (auto err = glGetError())
+            LOG(FATAL) << "pixel buffer 0 initialisation failed: " << err;
+        
         glGenTextures(1, &pixels_texture);
         glBindTexture(GL_TEXTURE_2D, pixels_texture);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, pixels_texture, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, pixels_texture, 0);
         if (auto err = glGetError())
             LOG(FATAL) << "pixel buffer initialisation failed: " << err;
-
+        
+        
+        /*
+        GLuint renderbuffer;
+        glGenRenderbuffers(1, &renderbuffer);
+        glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+        //glRenderbufferStorageMultisample(GL_RENDERBUFFER, 2, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, renderbuffer);
+        if (auto err = glGetError())
+            LOG(FATAL) << "color buffer initialisation failed: " << err;
+        */
+    
         // Set up a depth buffer
         GLuint depth_buffer;
         glGenRenderbuffers(1, &depth_buffer);
@@ -250,15 +263,18 @@ class RasteriseOpGpu : public OpKernel
         // Register the pixels texture as a cuda graphics resource
         cudaGraphicsResource_t pixels_resource;
         if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource, pixels_texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+        //if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource, renderbuffer, GL_RENDERBUFFER, cudaGraphicsRegisterFlagsSurfaceLoadStore))
             LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
 
         // Delete previous buffers, and store new ones in thread-objects
         if (objects.pixels_resource)
             cudaGraphicsUnregisterResource(objects.pixels_resource);
         glDeleteFramebuffers(1, &objects.framebuffer);
+        glDeleteTextures(1, &objects.pixels_texture0);
         glDeleteTextures(1, &objects.pixels_texture);
         glDeleteRenderbuffers(1, &objects.depth_buffer);
         objects.framebuffer = framebuffer;
+        objects.pixels_texture0 = pixels_texture0;
         objects.pixels_texture = pixels_texture;
         objects.depth_buffer = depth_buffer;
         objects.pixels_resource = pixels_resource;
@@ -359,6 +375,49 @@ public:
             auto const time_B = std::chrono::high_resolution_clock::now();
 #endif
 
+            // Load and compile the vertex and fragment shaders
+            GLuint const tri_vertex_shader = gl_common::create_shader(shaders::forward_vertex);
+            GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic);
+            GLuint const second_pass_fragment = gl_common::create_shader(shaders::second_pass_fragment);
+        
+            // Link the vertex & fragment shaders
+            objects.program = glCreateProgram();
+            glAttachShader(objects.program, tri_vertex_shader);
+            glAttachShader(objects.program, tri_fragment_shader);
+            glLinkProgram(objects.program);
+            gl_common::print_log(glGetProgramInfoLog, glGetProgramiv, GL_LINK_STATUS, objects.program, "program");
+            glUseProgram(objects.program);
+            glEnable(GL_MULTISAMPLE);
+
+            for (int index_in_batch = 0; index_in_batch < batch_size; ++index_in_batch) {
+
+                // Find where this frame in the batch should be rendered; set the viewport transform (so geometry
+                // ends up in the right place) and scissor region (so clears/etc. don't escape)
+                int const frame_x = (index_in_batch % frames_per_row) * objects.frame_width;
+                int const frame_y = (index_in_batch / frames_per_row) * objects.frame_height;
+                glViewport(frame_x, frame_y, objects.frame_width, objects.frame_height);
+                glScissor(frame_x, frame_y, objects.frame_width, objects.frame_height);
+
+                glClear(GL_DEPTH_BUFFER_BIT);
+
+                glDrawElementsBaseVertex(
+                    GL_TRIANGLES,
+                    static_cast<int>(faces_tensor.NumElements() / batch_size),
+                    GL_UNSIGNED_INT,
+                    (void *)(index_in_batch * faces_tensor.NumElements() / batch_size * sizeof(int32)),
+                    index_in_batch * vertex_count
+                );
+            }
+            
+            objects.program2 = glCreateProgram();
+            glAttachShader(objects.program2, tri_vertex_shader);
+            glAttachShader(objects.program2, second_pass_fragment);
+            glLinkProgram(objects.program2);
+            gl_common::print_log(glGetProgramInfoLog, glGetProgramiv, GL_LINK_STATUS, objects.program2, "program2");
+            GLint loc = glGetUniformLocation(objects.program2, "renderedTexture");
+            glUniform1i(loc, objects.pixels_texture0);
+            glUseProgram(objects.program2);
+            
             for (int index_in_batch = 0; index_in_batch < batch_size; ++index_in_batch) {
 
                 // Find where this frame in the batch should be rendered; set the viewport transform (so geometry

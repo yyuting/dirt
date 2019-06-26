@@ -39,7 +39,7 @@ def main():
         dirt_node = get_dirt_pixels()
         for i in range(2):
             dirt_pixels = dirt_node.eval()
-            print(dirt_pixels.shape)
+            print(dirt_pixels)
             skimage.io.imsave('%d.png' % i, np.clip(dirt_pixels, 0.0, 1.0))
             
 

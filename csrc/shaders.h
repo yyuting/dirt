@@ -17,6 +17,7 @@ namespace shaders
         forward_fragment,
         backward_vertex,
         backward_fragment,
+        second_pass_fragment,
         oceanic;
 }
 

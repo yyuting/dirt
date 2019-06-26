@@ -59,6 +59,22 @@ void main() {
 )glsl"
 };
 
+shaders::Shader const shaders::second_pass_fragment{
+    "second_pass_fragment", GL_FRAGMENT_SHADER, HEADER R"glsl(
+
+layout(location = 0) smooth in vec3 colour_in;
+layout(location = 1) in vec2 texCoordV;
+layout(location = 1) out vec4 colour_out;
+
+uniform sampler2D renderedTexture;
+
+void main() {
+    colour_out = texture(renderedTexture, (texCoordV + 1.0) / 2.0);
+}
+
+)glsl"
+};
+
 shaders::Shader const shaders::oceanic{
     "oceanic", GL_FRAGMENT_SHADER, HEADER R"glsl(
 
@@ -247,8 +263,8 @@ void main() {
   fragColor = vec4(0.0);
   fragColor.w = 1.0;
 
-  int xsamples = 30;
-  int ysamples = 30;
+  int xsamples = 1;
+  int ysamples = 1;
 
   for (int xx = 0; xx < xsamples; xx++) {
     for (int yy = 0; yy < ysamples; yy++) {
