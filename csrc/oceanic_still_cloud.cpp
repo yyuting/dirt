@@ -30,7 +30,7 @@
 
 using namespace tensorflow;
 
-REGISTER_OP("RasteriseGrad")
+REGISTER_OP("OceanicStillCloud")
     .Attr("height: int")
     .Attr("width: int")
     .Attr("channels: int = 3")
@@ -110,21 +110,7 @@ public:
     }
 };
 
-/*
-void launch_background_upload_copy(
-    cudaArray_t &dest_array, Tensor const &src_tensor,
-    int const dest_height, int const dest_width,
-    Eigen::GpuDevice const &device
-);
-
-void launch_pixels_download_copy(
-    Tensor &dest_tensor, cudaArray_t const &src_array,
-    int const src_height, int const src_width,
-    Eigen::GpuDevice const &device
-);
-*/
-
-class RasteriseGradOpGpu : public OpKernel
+class OceanicStillCloudOpGpu : public OpKernel
 {
     struct PerThreadObjects
     {
@@ -145,7 +131,6 @@ class RasteriseGradOpGpu : public OpKernel
         GLuint renderbuffer;
         cudaGraphicsResource_t pixels_resource, pixels_resource2;  // ** can we use RegisteredTexture from the grad code instead?
         CUcontext cuda_context;  // this is nullptr iff the thread-objects have not yet been initialised
-
     };
 
     HWC hwc;
@@ -290,9 +275,10 @@ class RasteriseGradOpGpu : public OpKernel
 
 public:
 
-    explicit RasteriseGradOpGpu(OpKernelConstruction* context) :
+    explicit OceanicStillCloudOpGpu(OpKernelConstruction* context) :
         OpKernel(context), hwc(get_hwc(context))
     {
+        
     }
 
     void Compute(OpKernelContext* context) override
@@ -396,7 +382,7 @@ public:
 
             // Load and compile the vertex and fragment shaders
             GLuint const tri_vertex_shader = gl_common::create_shader(shaders::forward_vertex);
-            GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic);
+            GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic_still_cloud);
             GLuint const second_pass_fragment = gl_common::create_shader(shaders::second_pass_fragment);
         
             // Link the vertex & fragment shaders
@@ -530,5 +516,5 @@ private:
     float camera_pos_cpu[8];
 };
 
-REGISTER_KERNEL_BUILDER(Name("RasteriseGrad").Device(DEVICE_GPU), RasteriseGradOpGpu);
+REGISTER_KERNEL_BUILDER(Name("OceanicStillCloud").Device(DEVICE_GPU), OceanicStillCloudOpGpu);
 

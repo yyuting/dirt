@@ -18,7 +18,11 @@ namespace shaders
         backward_vertex,
         backward_fragment,
         second_pass_fragment,
-        oceanic;
+        oceanic,
+        oceanic_no_cloud,
+        oceanic_still_cloud,
+        oceanic_still_cloud_opt_flow,
+        oceanic_horizon;
 }
 
 #endif //SHADERS_H

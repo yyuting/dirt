@@ -7,7 +7,7 @@ _lib_path = os.path.dirname(__file__)
 _rasterise_module = tf.load_op_library(_lib_path + '/librasterise.so')
 
 
-def rasterise(background, vertices, vertex_colors, faces, height=None, width=None, channels=None, name=None):
+def rasterise(background, vertices, vertex_colors, faces, camera_pos, height=None, width=None, channels=None, name=None):
     """Rasterises the given `vertices` and `faces` over `background`.
 
     This function takes a set of vertices, vertex colors, faces (vertex indices), and a background.
@@ -48,7 +48,7 @@ def rasterise(background, vertices, vertex_colors, faces, height=None, width=Non
         if channels is None:
             channels = int(background.get_shape()[2])
         return _rasterise_module.rasterise(
-            background[np.newaxis, ...], vertices[np.newaxis, ...], vertex_colors[np.newaxis, ...], faces[np.newaxis, ...],  # inputs
+            background[np.newaxis, ...], vertices[np.newaxis, ...], vertex_colors[np.newaxis, ...], faces[np.newaxis, ...], camera_pos, # inputs
             height, width, channels,  # attributes
             name=scope
         )[0]
@@ -88,23 +88,60 @@ def rasterise_batch(background, vertices, vertex_colors, faces, height=None, wid
         )
 
 
-@ops.RegisterGradient('Rasterise')
-def _rasterise_grad(op, grad_pixels, name=None):
-    grad_op_result = _rasterise_module.rasterise_grad(
-        op.inputs[1], op.inputs[3],
-        op.outputs[0], grad_pixels,
-        op.get_attr('height'), op.get_attr('width'), op.get_attr('channels'),
-        name=name
-    )
-    # tf.summary.image(
-    #     'debug_thingy',
-    #     (grad_op_result.debug_thingy - tf.reduce_min(grad_op_result.debug_thingy, axis=[1, 2], keep_dims=True)) /
-    #         (tf.reduce_max(grad_op_result.debug_thingy, axis=[1, 2], keep_dims=True) - tf.reduce_min(grad_op_result.debug_thingy, axis=[1, 2], keep_dims=True))
-    # )
-    return [
-        grad_op_result.grad_background,
-        grad_op_result.grad_vertices,
-        grad_op_result.grad_vertex_colors,
-        None  # wrt faces
-    ]
+def rasterise_grad(background, vertices, vertex_colors, faces, camera_pos, height=None, width=None, channels=None, name=None):
+
+    with ops.name_scope(name, 'Rasterise', [background, vertices, vertex_colors, faces]) as scope:
+        background = tf.convert_to_tensor(background, name='background', dtype=tf.float32)
+        vertices = tf.convert_to_tensor(vertices, name='vertices', dtype=tf.float32)
+        vertex_colors = tf.convert_to_tensor(vertex_colors, name='vertex_colors', dtype=tf.float32)
+        faces = tf.convert_to_tensor(faces, name='faces', dtype=tf.int32)
+        if height is None:
+            height = int(background.get_shape()[0])
+        if width is None:
+            width = int(background.get_shape()[1])
+        if channels is None:
+            channels = int(background.get_shape()[2])
+        return _rasterise_module.rasterise_grad(
+            background[np.newaxis, ...], vertices[np.newaxis, ...], vertex_colors[np.newaxis, ...], faces[np.newaxis, ...], camera_pos, # inputs
+            height, width, channels,  # attributes
+            name=scope
+        )[0]
+    
+def oceanic_no_cloud(background, vertices, vertex_colors, faces, camera_pos, height=None, width=None, channels=None, name=None):
+
+    with ops.name_scope(name, 'Rasterise', [background, vertices, vertex_colors, faces]) as scope:
+        background = tf.convert_to_tensor(background, name='background', dtype=tf.float32)
+        vertices = tf.convert_to_tensor(vertices, name='vertices', dtype=tf.float32)
+        vertex_colors = tf.convert_to_tensor(vertex_colors, name='vertex_colors', dtype=tf.float32)
+        faces = tf.convert_to_tensor(faces, name='faces', dtype=tf.int32)
+        if height is None:
+            height = int(background.get_shape()[0])
+        if width is None:
+            width = int(background.get_shape()[1])
+        if channels is None:
+            channels = int(background.get_shape()[2])
+        return _rasterise_module.oceanic_no_cloud(
+            background[np.newaxis, ...], vertices[np.newaxis, ...], vertex_colors[np.newaxis, ...], faces[np.newaxis, ...], camera_pos, # inputs
+            height, width, channels,  # attributes
+            name=scope
+        )[0]
+    
+def oceanic_still_cloud(background, vertices, vertex_colors, faces, camera_pos, height=None, width=None, channels=None, name=None):
+
+    with ops.name_scope(name, 'Rasterise', [background, vertices, vertex_colors, faces]) as scope:
+        background = tf.convert_to_tensor(background, name='background', dtype=tf.float32)
+        vertices = tf.convert_to_tensor(vertices, name='vertices', dtype=tf.float32)
+        vertex_colors = tf.convert_to_tensor(vertex_colors, name='vertex_colors', dtype=tf.float32)
+        faces = tf.convert_to_tensor(faces, name='faces', dtype=tf.int32)
+        if height is None:
+            height = int(background.get_shape()[0])
+        if width is None:
+            width = int(background.get_shape()[1])
+        if channels is None:
+            channels = int(background.get_shape()[2])
+        return _rasterise_module.oceanic_still_cloud(
+            background[np.newaxis, ...], vertices[np.newaxis, ...], vertex_colors[np.newaxis, ...], faces[np.newaxis, ...], camera_pos, # inputs
+            height, width, channels,  # attributes
+            name=scope
+        )[0]
 

@@ -26,6 +26,7 @@
 #include "hwc.h"
 #include "gl_dispatcher.h"
 #include "gl_common.h"
+#include "upload_and_launch.h"
 
 using namespace tensorflow;
 
@@ -37,6 +38,7 @@ REGISTER_OP("Rasterise")
     .Input("vertices: float32")
     .Input("vertex_colors: float32")
     .Input("faces: int32")
+    .Input("camera_pos: float32")
     .Output("pixels: float32")
     .SetShapeFn( [] (::tensorflow::shape_inference::InferenceContext *c) {
         int height, width, channels;
@@ -108,18 +110,6 @@ public:
     }
 };
 
-void launch_background_upload(
-    cudaArray_t &dest_array, Tensor const &src_tensor,
-    int const dest_height, int const dest_width,
-    Eigen::GpuDevice const &device
-);
-
-void launch_pixels_download(
-    Tensor &dest_tensor, cudaArray_t const &src_array,
-    int const src_height, int const src_width,
-    Eigen::GpuDevice const &device
-);
-
 class RasteriseOpGpu : public OpKernel
 {
     struct PerThreadObjects
@@ -139,7 +129,7 @@ class RasteriseOpGpu : public OpKernel
         GLuint program, program2;
         GLuint pixels_texture0, pixels_texture;
         GLuint renderbuffer;
-        cudaGraphicsResource_t pixels_resource;  // ** can we use RegisteredTexture from the grad code instead?
+        cudaGraphicsResource_t pixels_resource, pixels_resource2;  // ** can we use RegisteredTexture from the grad code instead?
         CUcontext cuda_context;  // this is nullptr iff the thread-objects have not yet been initialised
     };
 
@@ -174,7 +164,7 @@ class RasteriseOpGpu : public OpKernel
 
         objects.buffer_height = objects.buffer_width = 0;
         objects.framebuffer = objects.pixels_texture = objects.depth_buffer = objects.renderbuffer = 0;
-        objects.pixels_resource = nullptr;
+        objects.pixels_resource = objects.pixels_resource2 = nullptr;
 
         // ** The shaders we initialise here would preferably be global, not per-thread. However, that requires
         // ** fancier synchronisation to ensure everything is set up (and stored somewhere) before use
@@ -266,6 +256,7 @@ class RasteriseOpGpu : public OpKernel
         //if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource, renderbuffer, GL_RENDERBUFFER, cudaGraphicsRegisterFlagsSurfaceLoadStore))
             LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
 
+
         // Delete previous buffers, and store new ones in thread-objects
         if (objects.pixels_resource)
             cudaGraphicsUnregisterResource(objects.pixels_resource);
@@ -287,6 +278,7 @@ public:
     explicit RasteriseOpGpu(OpKernelConstruction* context) :
         OpKernel(context), hwc(get_hwc(context))
     {
+        
     }
 
     void Compute(OpKernelContext* context) override
@@ -326,6 +318,18 @@ public:
 
             Tensor const &faces_tensor = context->input(3);
             OP_REQUIRES(context, faces_tensor.shape().dims() == 3 && faces_tensor.shape().dim_size(2) == 3, errors::InvalidArgument("Rasterise expects faces to be 3D, and faces.shape[2] == 3"));
+            
+            Tensor const &camera_pos_tensor = context->input(4);
+            cudaMemcpy(camera_pos_cpu, camera_pos_tensor.flat<float>().data(), 8 * sizeof(float), cudaMemcpyDeviceToHost);
+            //LOG(INFO) << "camera pos test " << camera_pos_cpu[0] << ", " << camera_pos_cpu[1] << ", " << camera_pos_cpu[2] << ", " << camera_pos_cpu[3] << ", " << camera_pos_cpu[4] << ", " << camera_pos_cpu[5];
+            //LOG(INFO) << "TIME " << camera_pos_cpu[6];
+            //auto camera_pos = camera_pos_tensor.vec<float>();
+            //auto const camera_pos_count = static_cast<int>(camera_pos_tensor.shape().dim_size(0));
+            //auto const test1 = camera_pos(0);
+            //const float *camera_pos_pt = camera_pos.data();
+            //auto camera_pos = camera_pos_tensor.tensor_data().data();
+            
+            //LOG(INFO) << "camera_pos tensor size" << camera_pos_count << ", " << test1;
 
             // ** would be nice to relax the following to allow mixture of batch-size and singleton dim0's, and to broadcast the latter without re-copying data to the gpu
             int const batch_size = static_cast<int>(vertices_tensor.shape().dim_size(0));
@@ -333,6 +337,7 @@ public:
 
             Tensor *pixels_tensor = nullptr;
             OP_REQUIRES_OK(context, context->allocate_output(0, TensorShape{batch_size, objects.frame_height, objects.frame_width, objects.channels}, &pixels_tensor));
+           
 
 #ifdef TIME_SECTIONS
             auto const time_A = std::chrono::high_resolution_clock::now();
@@ -377,7 +382,7 @@ public:
 
             // Load and compile the vertex and fragment shaders
             GLuint const tri_vertex_shader = gl_common::create_shader(shaders::forward_vertex);
-            GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic);
+            GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic_horizon);
             GLuint const second_pass_fragment = gl_common::create_shader(shaders::second_pass_fragment);
         
             // Link the vertex & fragment shaders
@@ -386,9 +391,52 @@ public:
             glAttachShader(objects.program, tri_fragment_shader);
             glLinkProgram(objects.program);
             gl_common::print_log(glGetProgramInfoLog, glGetProgramiv, GL_LINK_STATUS, objects.program, "program");
+            GLint loc0 = glGetUniformLocation(objects.program, "backgroundTexture");
+            glUniform1i(loc0, objects.pixels_texture);
+            
             glUseProgram(objects.program);
+            
+            GLfloat gl_cam_x = (GLfloat) camera_pos_cpu[0];
+            GLfloat gl_cam_y = (GLfloat) camera_pos_cpu[1];
+            GLfloat gl_cam_z = (GLfloat) camera_pos_cpu[2];
+            GLfloat gl_ang1 = (GLfloat) camera_pos_cpu[3];
+            GLfloat gl_ang2 = (GLfloat) camera_pos_cpu[4];
+            GLfloat gl_ang3 = (GLfloat) camera_pos_cpu[5];
+            GLfloat gl_time = (GLfloat) camera_pos_cpu[6];
+            GLfloat gl_light_z = (GLfloat) camera_pos_cpu[7];
+            GLfloat gl_width = (GLfloat) objects.frame_width;
+            GLfloat gl_height = (GLfloat) objects.frame_height;
+                        
+            GLint loc_cam_x = glGetUniformLocation(objects.program, "cam_x");
+            glUniform1fv(loc_cam_x, 1, &gl_cam_x);
+            GLint loc_cam_y = glGetUniformLocation(objects.program, "cam_y");
+            glUniform1fv(loc_cam_y, 1, &gl_cam_y);
+            GLint loc_cam_z = glGetUniformLocation(objects.program, "cam_z");
+            glUniform1fv(loc_cam_z, 1, &gl_cam_z);
+            GLint loc_ang1 = glGetUniformLocation(objects.program, "ang1");
+            glUniform1fv(loc_ang1, 1, &gl_ang1);
+            GLint loc_ang2 = glGetUniformLocation(objects.program, "ang2");
+            glUniform1fv(loc_ang2, 1, &gl_ang2);
+            GLint loc_ang3 = glGetUniformLocation(objects.program, "ang3");
+            glUniform1fv(loc_ang3, 1, &gl_ang3);
+            
+            GLint loc_time = glGetUniformLocation(objects.program, "time");
+            glUniform1fv(loc_time, 1, &gl_time);
+            
+            GLint loc_lz = glGetUniformLocation(objects.program, "light_z");
+            glUniform1fv(loc_lz, 1, &gl_light_z);
+            
+            GLint loc_w = glGetUniformLocation(objects.program, "width");
+            glUniform1fv(loc_w, 1, &gl_width);
+            
+            GLint loc_h = glGetUniformLocation(objects.program, "height");
+            glUniform1fv(loc_h, 1, &gl_height);
+            
+            
             glEnable(GL_MULTISAMPLE);
-
+            
+            //LOG(INFO) << "gl float" << (GLfloat) cam_y << ", " << (GLfloat) ang1;
+            
             for (int index_in_batch = 0; index_in_batch < batch_size; ++index_in_batch) {
 
                 // Find where this frame in the batch should be rendered; set the viewport transform (so geometry
@@ -464,6 +512,9 @@ public:
 #endif
         } );
     }
+private:
+    float cam_x, cam_y, cam_z, ang1, ang2, ang3;
+    float camera_pos_cpu[8];
 };
 
 REGISTER_KERNEL_BUILDER(Name("Rasterise").Device(DEVICE_GPU), RasteriseOpGpu);

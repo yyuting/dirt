@@ -4,6 +4,7 @@
 
 #include <tensorflow/core/framework/tensor.h>
 #include <tensorflow/core/util/cuda_kernel_helper.h>
+#include "upload_and_launch.h"
 
 // If tensorflow is too old, this does not exist; if tensorflow is too new, it has an incompatible definition
 #define CUDA_AXIS_KERNEL_LOOP(i, n, axis)                                  \
