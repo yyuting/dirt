@@ -21,8 +21,9 @@ namespace shaders
         oceanic,
         oceanic_no_cloud,
         oceanic_still_cloud,
-        oceanic_still_cloud_opt_flow,
-        oceanic_horizon;
+        oceanic_opt_flow,
+        oceanic_horizon,
+        hill;
 }
 
 #endif //SHADERS_H

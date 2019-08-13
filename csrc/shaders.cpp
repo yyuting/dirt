@@ -75,6 +75,403 @@ void main() {
 )glsl"
 };
 
+shaders::Shader const shaders::hill{
+    "hill", GL_FRAGMENT_SHADER, HEADER R"glsl(
+    
+layout(location = 0) smooth in vec3 colour_in;
+layout(location = 1) in vec2 texCoordV;
+layout(location = 0) out vec4 fragColor;
+
+uniform sampler2D TerrainLookup;
+uniform float width;
+uniform float height;
+    
+#define MOD2 vec2(3.07965, 7.4235)
+float PI  = 4.0*atan(1.0);
+vec3 sunLight  = normalize( vec3(  0.35, 0.2,  0.3 ) );
+vec3 cameraPos;
+vec3 sunColour = vec3(1.0, .75, .6);
+const mat2 rotate2D = mat2(1.932, 1.623, -1.623, 1.952);
+float gTime = 0.0;
+
+//--------------------------------------------------------------------------
+// Noise functions...
+float Hash( float p )
+{
+    vec2 p2 = fract(vec2(p) / MOD2);
+    p2 += dot(p2.yx, p2.xy+19.19);
+    return fract(p2.x * p2.y);
+}
+
+//--------------------------------------------------------------------------
+float Hash(vec2 p)
+{
+    p  = fract(p / MOD2);
+    p += dot(p.xy, p.yx+19.19);
+    return fract(p.x * p.y);
+}
+
+
+//--------------------------------------------------------------------------
+float Noise( in vec2 x )
+{
+    vec2 p = floor(x);
+    vec2 f = fract(x);
+    f = f*f*(3.0-2.0*f);
+    float n = p.x + p.y*57.0;
+    float res = mix(mix( Hash(n+  0.0), Hash(n+  1.0),f.x),
+                    mix( Hash(n+ 57.0), Hash(n+ 58.0),f.x),f.y);
+    return res;
+}
+
+vec2 Voronoi( in vec2 x )
+{
+    vec2 p = floor( x );
+    vec2 f = fract( x );
+    float res=100.0,id;
+    for( int j=-1; j<=1; j++ )
+    for( int i=-1; i<=1; i++ )
+    {
+        vec2 b = vec2( float(i), float(j) );
+        vec2 r = vec2( b ) - f  + Hash( p + b );
+        float d = dot(r,r);
+        if( d < res )
+        {
+            res = d;
+            id  = Hash(p+b);
+        }
+    }
+    return vec2(max(.4-sqrt(res), 0.0),id);
+}
+
+
+//--------------------------------------------------------------------------
+
+vec2 texture_x_range = vec2(-45.0, 94.0);
+vec2 texture_y_range = vec2(4.0, 164.0);
+vec2 texture_translation;
+vec2 texture_scale;
+float height_translation = 2.92;
+float height_scale = 47.0;
+
+
+vec2 Terrain( in vec2 p)
+{
+    texture_translation.xy = vec2(texture_x_range.x, texture_y_range.x);
+    texture_scale.xy = vec2(texture_x_range.x + texture_x_range.y, texture_y_range.x + texture_y_range.y);
+    vec2 scaled_p;
+    //scaled_p.x = (p.x + 6.0) / 13.0;
+    //scaled_p.y = (p.y - 2.0) / 10.0;
+    scaled_p = (p - texture_translation) / texture_scale;
+    vec4 h = texture(TerrainLookup, scaled_p.yx) * height_scale - height_translation;
+    return vec2(h.x, 0.0);
+}
+
+//--------------------------------------------------------------------------
+vec2 Map(in vec3 p)
+{
+    vec2 h = Terrain(p.xz);
+    return vec2(p.y - h.x, 0.0);
+}
+
+//--------------------------------------------------------------------------
+float FractalNoise(in vec2 xy)
+{
+    float w = .7;
+    float f = 0.0;
+
+    for (int i = 0; i < 3; i++)
+    {
+        f += Noise(xy) * w;
+        w = w*0.6;
+        xy = 2.0 * xy;
+    }
+    return f;
+}
+
+//--------------------------------------------------------------------------
+// Grab all sky information for a given ray from camera
+vec3 GetSky(in vec3 rd)
+{
+    float sunAmount = max( dot( rd, sunLight), 0.0 );
+    float v = pow(1.0-max(rd.y,0.0),6.);
+    vec3  sky = mix(vec3(.1, .2, .3), vec3(.32, .32, .32), v);
+    sky = sky + sunColour * sunAmount * sunAmount * .25;
+    sky = sky + sunColour * min(pow(sunAmount, 800.0)*1.5, .3);
+    return clamp(sky, 0.0, 1.0);
+}
+
+//--------------------------------------------------------------------------
+// Merge grass into the sky background for correct fog colouring...
+vec3 ApplyFog( in vec3  rgb, in float dis, in vec3 dir)
+{
+    float fogAmount = clamp(dis*dis* 0.0000012, 0.0, 1.0);
+    return mix( rgb, GetSky(dir), fogAmount );
+}
+
+//--------------------------------------------------------------------------
+vec3 DE(vec3 p)
+{
+    float scale = 3.0;
+    float base = Terrain(p.xz).x - 1.3;
+    p.xz *= 4.0;
+    float height = Noise(p.xz*2.0)*.75 + Noise(p.xz)*.35 + Noise(p.xz*.5)*.2;;
+    //p.y += height;
+    float y = p.y - base-height;
+    y = y*y;
+    vec2 ret = Voronoi((p.xz*2.5+sin(y*4.0+p.zx*12.3)*.12+vec2(sin(iTime*2.3+1.5*p.z),sin(iTime*3.6+1.5*p.x))*y*.5));
+    float f = ret.x * .6 + y * .58;
+    return vec3( y - f*1.4, clamp(f * 1.5, 0.0, 1.0), ret.y);
+}
+
+//--------------------------------------------------------------------------
+// eiffie's code for calculating the aperture size for a given distance...
+float CircleOfConfusion(float t)
+{
+    return max(t * .04, (2.0 / height) * (1.0+t));
+}
+
+//--------------------------------------------------------------------------
+float Linstep(float a, float b, float t)
+{
+    return clamp((t-a)/(b-a),0.,1.);
+}
+
+//--------------------------------------------------------------------------
+vec3 GrassBlades(in vec3 rO, in vec3 rD, in vec3 mat, in float dist)
+{
+    float d = 0.0;
+    // Only calculate cCoC once is enough here...
+    float rCoC = CircleOfConfusion(dist*.3);
+    float alpha = 0.0;
+
+    vec4 col = vec4(mat*0.15, 0.0);
+
+    for (int i = 0; i < 15; i++)
+    {
+        if (col.w > .99) break;
+        vec3 p = rO + rD * d;
+
+        vec3 ret = DE(p);
+        ret.x += 0.5 * rCoC;
+
+        if (ret.x < rCoC)
+        {
+            alpha = (1.0 - col.y) * Linstep(-rCoC, rCoC, -ret.x);//calculate the mix like cloud density
+            // Mix material with white tips for grass...
+            vec3 gra = mix(mat, vec3(.35, .35, min(pow(ret.z, 4.0)*35.0, .35)), pow(ret.y, 9.0)*.7) * ret.y;
+            col += vec4(gra * alpha, alpha);
+        }
+        d += max(ret.x * .7, .1);
+    }
+    if(col.w < .2)
+        col.xyz = vec3(0.1, .15, 0.05);
+    return col.xyz;
+}
+
+//--------------------------------------------------------------------------
+// Calculate sun light...
+void DoLighting(inout vec3 mat, in vec3 pos, in vec3 normal, in vec3 eyeDir, in float dis)
+{
+    float h = dot(sunLight,normal);
+    mat = mat * sunColour*(max(h, 0.0)+.2);
+}
+
+//--------------------------------------------------------------------------
+vec3 TerrainColour(vec3 pos, vec3 dir,  vec3 normal, float dis, float type)
+{
+    vec3 mat;
+    if (type == 0.0)
+    {
+        // Random colour...
+        mat = mix(vec3(.0,.3,.0), vec3(.2,.3,.0), Noise(pos.xz*.025));
+        // Random shadows...
+        float t = FractalNoise(pos.xz * .1)+.5;
+        // Do grass blade tracing...
+        mat = GrassBlades(pos, dir, mat, dis) * t;
+        DoLighting(mat, pos, normal,dir, dis);
+    }
+    mat = ApplyFog(mat, dis, dir);
+    return mat;
+}
+
+//--------------------------------------------------------------------------
+// Home in on the surface by dividing by two and split...
+float BinarySubdivision(in vec3 rO, in vec3 rD, float t, float oldT)
+{
+    float halfwayT = 0.0;
+    for (int n = 0; n < 5; n++)
+    {
+        halfwayT = (oldT + t ) * .5;
+        if (abs(Map(rO + halfwayT*rD)).x < .05)
+        {
+            t = halfwayT;
+        }else
+        {
+            oldT = halfwayT;
+        }
+    }
+    return t;
+}
+
+//--------------------------------------------------------------------------
+bool Scene(in vec3 rO, in vec3 rD, out float resT, out float type )
+{
+    float t;
+    
+    t = -(rO.y + 1.0) / rD.y;
+    if ((rD.y) > -0.015) t = 80.0;
+    float h;
+    float st = 1.0;
+    vec3 p;
+    float old_h;
+    bool forward = true;
+    for (int j = 0; j < 70; j++) {
+        //if (t > 100.0 && forward) st = 0.8;
+        p = rO + t*rD;
+        h = Map(p).x;
+        t += max(1.0, abs(h)) * sign(h) * st;
+        if (h * old_h < 0.0) {
+            st /= 2.0;
+            forward = false;
+        }
+        old_h = h;
+    }
+    type = 0.0;
+    resT = t;
+    if (abs(h) < 0.05) return true;
+    else return false;
+}
+
+//--------------------------------------------------------------------------
+vec3 CameraPath( float t )
+{
+    //t = time + t;
+    vec2 p = vec2(200.0 * sin(3.54*t), 200.0 * cos(2.0*t) );
+    return vec3(p.x+55.0,  12.0+sin(t*.3)*6.5, -94.0+p.y);
+} 
+
+//--------------------------------------------------------------------------
+vec3 PostEffects(vec3 rgb, vec2 xy)
+{
+    // Gamma first...
+    rgb = pow(rgb, vec3(0.45));
+
+    // Then...
+    #define CONTRAST 1.1
+    #define SATURATION 1.3
+    #define BRIGHTNESS 1.3
+    rgb = mix(vec3(.5), mix(vec3(dot(vec3(.2125, .7154, .0721), rgb*BRIGHTNESS)), rgb*BRIGHTNESS, SATURATION), CONTRAST);
+    // Vignette...
+    rgb *= .4+0.5*pow(40.0*xy.x*xy.y*(1.0-xy.x)*(1.0-xy.y), 0.2 );	
+    return rgb;
+}
+
+//--------------------------------------------------------------------------
+void main()
+{
+    vec2 xy;
+    texCoordV.y *= -1.0; 
+    
+    xy = (texCoordV + 1.0) / 2.0;
+    
+    
+    //fragColor.xy = xy;
+    //fragColor.zw = vec2(0.0);
+    //return;
+    
+    if (abs(xy.y * height - height / 2.0) / (width / 2.0) >= 0.5625) {
+        fragColor = vec4(0.0);
+        return;
+    }
+     vec3 ray_dir;
+  ray_dir.x = xy.x * width - width / 2.0;
+  ray_dir.y = xy.y * height - height / 2.0;
+  ray_dir.z = 0.85 * width;
+  ray_dir = normalize(ray_dir);
+
+  float ang1 = 0.0;
+  float ang2 = 6.8;
+  float ang3 = 0.0;
+  cameraPos = vec3(0.0110647, -0.01849679, -1.52716118);
+  //cameraPos.y += 10.0;
+  //cameraPos.z += 3.0;
+  cameraPos.z = -3.0;
+  
+  float sin1 = sin(ang1);
+  float cos1 = cos(ang1);
+  float sin2 = sin(ang2);
+  float cos2 = cos(ang2);
+  float sin3 = sin(ang3);
+  float cos3 = cos(ang3);
+    
+  vec3 ray_dir_p;
+    
+    // current assumption to align with opensfm reconstruction:
+    // should check later whether it is correct
+    // d_world = R_z2-y * R_camera^T * d_camera
+   
+    float r00 = 0.999999573;
+    float r01 = -0.0000933038802;
+    float r02 = 0.000919791287;
+    float r10 = 0.000918443273 ;
+    float r11 = -0.0135434586;
+    float r12 = -0.999907861;
+    float r20 = 0.000105752439 ;
+    float r21 = 0.999908279 ;
+    float r22 = -0.0135433672;
+    
+  
+    ray_dir_p.x = (r00 * ray_dir.x + r10 * ray_dir.y + r20 * ray_dir.z);
+    ray_dir_p.z = (r01 * ray_dir.x + r11 * ray_dir.y + r21 * ray_dir.z);
+    ray_dir_p.y = (r02 * ray_dir.x + r12 * ray_dir.y + r22 * ray_dir.z);
+    
+    //ray_dir_p.x = ray_dir.x;
+    //ray_dir_p.z = -ray_dir.z;
+    //ray_dir_p.y = -ray_dir.y;
+    
+    
+  vec3 dir = ray_dir_p;
+
+
+    vec3 col;
+    float distance;
+    float type;
+    if( !Scene(cameraPos, dir, distance, type) )
+    {
+        // Missed scene, now just get the sky...
+        col = GetSky(dir);
+    }
+    else
+    {   
+        // Get world coordinate of landscape...
+        vec3 pos = cameraPos + distance * dir;
+        // Get normal from sampling the high definition height map
+        // Use the distance to sample larger gaps to help stop aliasing...
+        vec2 p = vec2(0.1, 0.0);
+        vec3 nor = vec3(0.0,Terrain(pos.xz).x, 0.0);
+        vec3 v2 = nor-vec3(p.x,Terrain(pos.xz+p).x, 0.0);
+        vec3 v3 = nor-vec3(0.0,Terrain(pos.xz-p.yx).x, -p.x);
+        nor = cross(v2, v3);
+        nor = normalize(nor);
+        
+
+        // Get the colour using all available data...
+        col = TerrainColour(pos, dir, nor, distance, type);
+    }
+
+    col = PostEffects(col, xy);
+    
+    #ifdef STEREO
+    col *= vec3( isCyan, 1.0-isCyan, 1.0-isCyan );
+    #endif
+    
+    fragColor=vec4(col,1.0);
+}
+    
+)glsl"
+};
+
 shaders::Shader const shaders::oceanic{
     "oceanic", GL_FRAGMENT_SHADER, HEADER R"glsl(
 
@@ -403,6 +800,7 @@ uniform float time;
 uniform float light_z;
 uniform float width;
 uniform float height;
+uniform float cloud_t;
 
 float waterlevel = 70.0;        // height of the water
 float wavegain   = 1.0;       // change to adjust the general water wave level
@@ -511,7 +909,7 @@ float water( vec2 p )
 }
 
 float trace_fog(in vec3 rStart, in vec3 rDirection ) {
-  vec2 shift = vec2(0.0);
+  vec2 shift = vec2( cloud_t*80.0, cloud_t*60.0 );
   float sum = 0.0;
   // use only 12 cloud-layers ;)
   // this improves performance but results in "god-rays shining through clouds" effect (sometimes)...
@@ -626,7 +1024,7 @@ void main() {
       col += 0.4*vec3(0.8,0.9,1.0)*pow( sundot, 2.0 );
 
       
-      vec2 shift = vec2(0.0);
+      vec2 shift = vec2( cloud_t*80.0, cloud_t*60.0 );
       vec4 sum = vec4(0,0,0,0);
       for (int q=1000; q<1100; q++) // 100 layers
       {
@@ -695,8 +1093,9 @@ void main() {
 )glsl"
 };
 
-shaders::Shader const shaders::oceanic_still_cloud_opt_flow{
-    "oceanic", GL_FRAGMENT_SHADER, HEADER R"glsl(
+
+shaders::Shader const shaders::oceanic_opt_flow{
+    "oceanic_opt_flow", GL_FRAGMENT_SHADER, HEADER R"glsl(
 
 layout(location = 0) smooth in vec3 colour_in;
 layout(location = 1) in vec2 texCoordV;
@@ -710,6 +1109,7 @@ uniform float ang1;
 uniform float ang2;
 uniform float ang3;
 uniform float time;
+
 uniform float dx;
 uniform float dy;
 uniform float dz;
@@ -717,14 +1117,15 @@ uniform float dt;
 uniform float dang1;
 uniform float dang2;
 uniform float dang3;
+
 uniform float light_z;
 uniform float width;
 uniform float height;
 
 float waterlevel = 70.0;        // height of the water
 float wavegain   = 1.0;       // change to adjust the general water wave level
-float large_waveheight = 1.0; // change to adjust the "heavy" waves (set to 0.0 to have a very still ocean :)
-float small_waveheight = 1.0; // change to adjust the small waves
+float large_waveheight = 0.0; // change to adjust the "heavy" waves (set to 0.0 to have a very still ocean :)
+float small_waveheight = 0.0; // change to adjust the small waves
 
 vec3 fogcolor    = vec3( 0.5, 0.7, 1.1 );
 vec3 skybottom   = vec3( 0.6, 0.8, 1.2 );
@@ -794,37 +1195,9 @@ float fbm( vec2 p )
 }
 
 // this calculates the water as a height of a given position
-float water( vec2 p )
+float water( vec2 p, float ctime)
 {
-  float height = waterlevel;
-
-  vec2 shift1 = 0.001*vec2( time*160.0*2.0, time*120.0*2.0 );
-  vec2 shift2 = 0.001*vec2( time*190.0*2.0, -time*130.0*2.0 );
-
-  // coarse crossing 'ocean' waves...
-  float wave = 0.0;
-  wave += sin(p.x*0.021  + shift2.x)*4.5;
-  wave += sin(p.x*0.0172+p.y*0.010 + shift2.x*1.121)*4.0;
-  wave -= sin(p.x*0.00104+p.y*0.005 + shift2.x*0.121)*4.0;
-  // ...added by some smaller faster waves...
-  wave += sin(p.x*0.02221+p.y*0.01233+shift2.x*3.437)*5.0;
-  wave += sin(p.x*0.03112+p.y*0.01122+shift2.x*4.269)*2.5 ;
-  wave *= large_waveheight;
-  wave -= fbm(p*0.004-shift2*.5)*small_waveheight*24.;
-  // ...added by some distored random waves (which makes the water looks like water :)
-
-  float amp = 6.*small_waveheight;
-  shift1 *= .3;
-  for (int i=0; i<7; i++)
-  {
-    wave -= abs(sin((noise(p*0.01+shift1)-.5)*3.14))*amp;
-    amp *= .51;
-    shift1 *= 1.841;
-    p *= m2*0.9331;
-  }
-
-  height += wave;
-  return height;
+  return waterlevel - 12.0;
 }
 
 bool trace(in vec3 rStart, in vec3 rDirection, in float sundot, out float fog, out float dist)
@@ -846,7 +1219,7 @@ bool trace(in vec3 rStart, in vec3 rDirection, in float sundot, out float fog, o
 
     p = rStart + t*rDirection; // calc current ray position
 
-    h = p.y - water(p.xz);
+    h = p.y - water(p.xz, time);
 
     t += max(1.0, abs(h)) * sign(h) * st;
       
@@ -868,9 +1241,9 @@ void main() {
 
 
   xy = texCoordV;
-  vec4 sample_noise = texture(backgroundTexture, (texCoordV + 1.0) / 2.0);
-  xy.x += sample_noise.x / width;
-  xy.y += sample_noise.y / height;
+  //vec4 sample_noise = texture(backgroundTexture, (texCoordV + 1.0) / 2.0);
+  //xy.x += sample_noise.x / width;
+  //xy.y += sample_noise.y / height;
 
   // get camera position and view direction
   vec3 campos;
@@ -935,10 +1308,15 @@ void main() {
   new_coord.y = old_r_dir.y + height / 2.0;
 
   fragColor.xy = new_coord;
+  return;
+  fragColor = texture(backgroundTexture, vec2(new_coord.x / width, new_coord.y / height));
   
 }
 )glsl"
 };
+
+
+
 
 shaders::Shader const shaders::oceanic_no_cloud{
     "oceanic", GL_FRAGMENT_SHADER, HEADER R"glsl(

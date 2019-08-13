@@ -30,7 +30,7 @@
 
 using namespace tensorflow;
 
-REGISTER_OP("OceanicStillCloud")
+REGISTER_OP("Hill")
     .Attr("height: int")
     .Attr("width: int")
     .Attr("channels: int = 3")
@@ -110,7 +110,7 @@ public:
     }
 };
 
-class OceanicStillCloudOpGpu : public OpKernel
+class HillOpGpu : public OpKernel
 {
     struct PerThreadObjects
     {
@@ -275,7 +275,7 @@ class OceanicStillCloudOpGpu : public OpKernel
 
 public:
 
-    explicit OceanicStillCloudOpGpu(OpKernelConstruction* context) :
+    explicit HillOpGpu(OpKernelConstruction* context) :
         OpKernel(context), hwc(get_hwc(context))
     {
         
@@ -382,7 +382,7 @@ public:
 
             // Load and compile the vertex and fragment shaders
             GLuint const tri_vertex_shader = gl_common::create_shader(shaders::forward_vertex);
-            GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic_still_cloud);
+            GLuint const tri_fragment_shader = gl_common::create_shader(shaders::hill);
             GLuint const second_pass_fragment = gl_common::create_shader(shaders::second_pass_fragment);
         
             // Link the vertex & fragment shaders
@@ -391,7 +391,7 @@ public:
             glAttachShader(objects.program, tri_fragment_shader);
             glLinkProgram(objects.program);
             gl_common::print_log(glGetProgramInfoLog, glGetProgramiv, GL_LINK_STATUS, objects.program, "program");
-            GLint loc0 = glGetUniformLocation(objects.program, "backgroundTexture");
+            GLint loc0 = glGetUniformLocation(objects.program, "TerrainLookup");
             glUniform1i(loc0, objects.pixels_texture);
             
             glUseProgram(objects.program);
@@ -520,5 +520,5 @@ private:
     float camera_pos_cpu[8];
 };
 
-REGISTER_KERNEL_BUILDER(Name("OceanicStillCloud").Device(DEVICE_GPU), OceanicStillCloudOpGpu);
+REGISTER_KERNEL_BUILDER(Name("Hill").Device(DEVICE_GPU), HillOpGpu);
 

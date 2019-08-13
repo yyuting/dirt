@@ -30,7 +30,7 @@
 
 using namespace tensorflow;
 
-REGISTER_OP("OceanicStillCloud")
+REGISTER_OP("OceanicOptFlow")
     .Attr("height: int")
     .Attr("width: int")
     .Attr("channels: int = 3")
@@ -110,7 +110,7 @@ public:
     }
 };
 
-class OceanicStillCloudOpGpu : public OpKernel
+class OceanicOptFlowOpGpu : public OpKernel
 {
     struct PerThreadObjects
     {
@@ -275,7 +275,7 @@ class OceanicStillCloudOpGpu : public OpKernel
 
 public:
 
-    explicit OceanicStillCloudOpGpu(OpKernelConstruction* context) :
+    explicit OceanicOptFlowOpGpu(OpKernelConstruction* context) :
         OpKernel(context), hwc(get_hwc(context))
     {
         
@@ -320,7 +320,7 @@ public:
             OP_REQUIRES(context, faces_tensor.shape().dims() == 3 && faces_tensor.shape().dim_size(2) == 3, errors::InvalidArgument("Rasterise expects faces to be 3D, and faces.shape[2] == 3"));
             
             Tensor const &camera_pos_tensor = context->input(4);
-            cudaMemcpy(camera_pos_cpu, camera_pos_tensor.flat<float>().data(), 9 * sizeof(float), cudaMemcpyDeviceToHost);
+            cudaMemcpy(camera_pos_cpu, camera_pos_tensor.flat<float>().data(), 16 * sizeof(float), cudaMemcpyDeviceToHost);
             //LOG(INFO) << "camera pos test " << camera_pos_cpu[0] << ", " << camera_pos_cpu[1] << ", " << camera_pos_cpu[2] << ", " << camera_pos_cpu[3] << ", " << camera_pos_cpu[4] << ", " << camera_pos_cpu[5];
             //LOG(INFO) << "TIME " << camera_pos_cpu[6];
             //auto camera_pos = camera_pos_tensor.vec<float>();
@@ -382,7 +382,7 @@ public:
 
             // Load and compile the vertex and fragment shaders
             GLuint const tri_vertex_shader = gl_common::create_shader(shaders::forward_vertex);
-            GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic_still_cloud);
+            GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic_opt_flow);
             GLuint const second_pass_fragment = gl_common::create_shader(shaders::second_pass_fragment);
         
             // Link the vertex & fragment shaders
@@ -404,7 +404,14 @@ public:
             GLfloat gl_ang3 = (GLfloat) camera_pos_cpu[5];
             GLfloat gl_time = (GLfloat) camera_pos_cpu[6];
             GLfloat gl_light_z = (GLfloat) camera_pos_cpu[7];
-            GLfloat gl_cloud_t = (GLfloat) camera_pos_cpu[8];
+            
+            GLfloat gl_dt = (GLfloat) camera_pos_cpu[9];
+            GLfloat gl_dx = (GLfloat) camera_pos_cpu[10];
+            GLfloat gl_dy = (GLfloat) camera_pos_cpu[11];
+            GLfloat gl_dz = (GLfloat) camera_pos_cpu[12];
+            GLfloat gl_dang1 = (GLfloat) camera_pos_cpu[13];
+            GLfloat gl_dang2 = (GLfloat) camera_pos_cpu[14];
+            GLfloat gl_dang3 = (GLfloat) camera_pos_cpu[15];
             GLfloat gl_width = (GLfloat) objects.frame_width;
             GLfloat gl_height = (GLfloat) objects.frame_height;
             
@@ -427,8 +434,22 @@ public:
             GLint loc_lz = glGetUniformLocation(objects.program, "light_z");
             glUniform1fv(loc_lz, 1, &gl_light_z);
             
-            GLint loc_ct = glGetUniformLocation(objects.program, "cloud_t");
-            glUniform1fv(loc_ct, 1, &gl_cloud_t);
+            
+            GLint loc_dt = glGetUniformLocation(objects.program, "dt");
+            glUniform1fv(loc_dt, 1, &gl_dt);
+            GLint loc_dx = glGetUniformLocation(objects.program, "dx");
+            glUniform1fv(loc_dx, 1, &gl_dx);
+            GLint loc_dy = glGetUniformLocation(objects.program, "dy");
+            glUniform1fv(loc_dy, 1, &gl_dy);
+            GLint loc_dz = glGetUniformLocation(objects.program, "dz");
+            glUniform1fv(loc_dz, 1, &gl_dz);
+            GLint loc_dang1 = glGetUniformLocation(objects.program, "dang1");
+            glUniform1fv(loc_dang1, 1, &gl_dang1);
+            GLint loc_dang2 = glGetUniformLocation(objects.program, "dang2");
+            glUniform1fv(loc_dang2, 1, &gl_dang2);
+            GLint loc_dang3 = glGetUniformLocation(objects.program, "dang3");
+            glUniform1fv(loc_dang3, 1, &gl_dang3);
+            
             
             GLint loc_w = glGetUniformLocation(objects.program, "width");
             glUniform1fv(loc_w, 1, &gl_width);
@@ -517,8 +538,8 @@ public:
     }
 private:
     float cam_x, cam_y, cam_z, ang1, ang2, ang3;
-    float camera_pos_cpu[8];
+    float camera_pos_cpu[15];
 };
 
-REGISTER_KERNEL_BUILDER(Name("OceanicStillCloud").Device(DEVICE_GPU), OceanicStillCloudOpGpu);
+REGISTER_KERNEL_BUILDER(Name("OceanicOptFlow").Device(DEVICE_GPU), OceanicOptFlowOpGpu);
 
