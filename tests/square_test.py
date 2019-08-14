@@ -11,7 +11,6 @@ canvas_width, canvas_height = 960, 640
 centre_x, centre_y = 32, 64
 square_size = 16
 
-
 def get_non_dirt_pixels():
     xs, ys = tf.meshgrid(tf.range(canvas_width), tf.range(canvas_height))
     xs = tf.cast(xs, tf.float32) + 0.5
@@ -86,7 +85,7 @@ def get_oceanic_still_cloud():
     #background = tf.constant(skimage.img_as_float(background), dtype=tf.float32)
     background = tf.random_normal([canvas_height, canvas_width, 3], dtype=tf.float32)
     
-    camera_pos = tf.placeholder(tf.float32, 8)
+    camera_pos = tf.placeholder(tf.float32, 9)
     
     return dirt.oceanic_still_cloud(
         vertices=square_vertices,
@@ -96,6 +95,26 @@ def get_oceanic_still_cloud():
         camera_pos = camera_pos,
         height=canvas_height, width=canvas_width, channels=3
     ), camera_pos
+
+def get_oceanic_opt_flow():
+
+    square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
+
+    #background = skimage.io.imread('/n/fs/shaderml/datas_oceanic/test_img/test_middle_ground00000.png')
+    #background = tf.constant(skimage.img_as_float(background), dtype=tf.float32)
+    #background = tf.random_normal([canvas_height, canvas_width, 3], dtype=tf.float32)
+    background = tf.placeholder(tf.float32, [canvas_height, canvas_width, 3])
+    
+    camera_pos = tf.placeholder(tf.float32, 15)
+    
+    return dirt.oceanic_opt_flow(
+        vertices=square_vertices,
+        faces=[[0, 1, 2], [0, 2, 3]],
+        vertex_colors=tf.ones([4, 3]),
+        background=background,
+        camera_pos = camera_pos,
+        height=canvas_height, width=canvas_width, channels=3
+    ), camera_pos, background
 
 
 def main():
@@ -107,24 +126,66 @@ def main():
     camera_pos_vals = np.load(os.path.join(dir, 'camera_pos_' + name + '.npy'))
     render_t  = np.load(os.path.join(dir, 'render_t_' + name + '.npy'))
     nframes = camera_pos_vals.shape[0]
-    feed_dict_arr = np.empty(8)
+    feed_dict_arr = np.empty(9)
     feed_dict_arr[7] = 0.9
     img = np.zeros([640, 960, 3])
         
     session = tf.Session()
     with session.as_default():
 
-        dirt_node, camera_pos = get_dirt_pixels()
-        dirt_node2, camera_pos2 = get_dirt_pixels_render()
-        dirt_node3, camera_pos3 = get_oceanic_no_cloud()
+        if False:
+            dirt_node, camera_pos = get_dirt_pixels()
+            dirt_node2, camera_pos2 = get_dirt_pixels_render()
+            dirt_node3, camera_pos3 = get_oceanic_no_cloud()
+            dirt_node5, camera_pos5, bg = get_oceanic_opt_flow()
+        
         dirt_node4, camera_pos4 = get_oceanic_still_cloud()
         
-        feed_dict_arr[:6] = camera_pos_vals[0, :]
+        
+        #feed_dict_arr[:6] = camera_pos_vals[0, :]
+        feed_dict_arr[:6] = np.array([0.0, 100, 0, 0, 0.3, 0])
         feed_dict_arr[6] = render_t[0]
-        arr1 = session.run(dirt_node, feed_dict={camera_pos: feed_dict_arr})
-        arr2 = session.run(dirt_node2, feed_dict={camera_pos2: feed_dict_arr})
-        arr3 = session.run(dirt_node3, feed_dict={camera_pos3: feed_dict_arr})
-        arr4 = session.run(dirt_node4, feed_dict={camera_pos4: feed_dict_arr})
+        
+        if False:
+            arr1 = session.run(dirt_node, feed_dict={camera_pos: feed_dict_arr})
+            arr2 = session.run(dirt_node2, feed_dict={camera_pos2: feed_dict_arr})
+            arr3 = session.run(dirt_node3, feed_dict={camera_pos3: feed_dict_arr})
+        
+        for i in range(10):
+            feed_dict_arr[8] = 0.1 * i
+            arr4 = session.run(dirt_node4, feed_dict={camera_pos4: feed_dict_arr})
+            skimage.io.imsave('test%d.png' % i, np.clip(arr4, 0.0, 1.0))
+        return
+        
+        feed_dict_arr_extended = np.empty(15)
+        feed_dict_arr_extended[:8] = feed_dict_arr[:]
+        dt = 1 / 30
+        dx = 30.0
+        dy = 14.0
+        dz = 15.0
+        dang1 = 0.1
+        dang2 = 0.1
+        dang3 = 0.1
+        feed_dict_arr_extended[8] = dt
+        feed_dict_arr_extended[9] = dx
+        feed_dict_arr_extended[10] = dy
+        feed_dict_arr_extended[11] = dz
+        feed_dict_arr_extended[12] = dang1
+        feed_dict_arr_extended[13] = dang2
+        feed_dict_arr_extended[14] = dang3
+        
+        feed_dict_arr_extended[:6] += dt * feed_dict_arr_extended[9:]
+        feed_dict_arr_extended[6] += dt
+        arr5 = session.run(dirt_node5,feed_dict={camera_pos5: feed_dict_arr_extended, bg: arr4})
+        
+        feed_dict_arr = feed_dict_arr_extended[:8]
+        arr6 = session.run(dirt_node4, feed_dict={camera_pos4: feed_dict_arr})
+        
+        skimage.io.imsave('frame_before.png', np.clip(arr4, 0, 1))
+        skimage.io.imsave('frame_after.png', np.clip(arr6, 0, 1))
+        skimage.io.imsave('frame_before_wrapped_to_after.png', np.clip(arr5, 0, 1))
+        
+        return
         skimage.io.imsave('test.png', np.clip(arr2, 0, 1))
         skimage.io.imsave('test2.png', np.clip(arr1[:, :, 0], 0, 1))
         skimage.io.imsave('test3.png', np.clip(arr1[:, :, 1], 0, 1))
