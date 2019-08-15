@@ -39,6 +39,7 @@ REGISTER_OP("Hill")
     .Input("vertex_colors: float32")
     .Input("faces: int32")
     .Input("camera_pos: float32")
+    .Input("normal: float32")
     .Output("pixels: float32")
     .SetShapeFn( [] (::tensorflow::shape_inference::InferenceContext *c) {
         int height, width, channels;
@@ -127,9 +128,9 @@ class HillOpGpu : public OpKernel
         RegisteredBuffer vertexbuffer, colourbuffer;
         RegisteredBuffer elementbuffer;
         GLuint program, program2;
-        GLuint pixels_texture0, pixels_texture;
+        GLuint pixels_texture0, pixels_texture, pixels_texture2;
         GLuint renderbuffer;
-        cudaGraphicsResource_t pixels_resource, pixels_resource2;  // ** can we use RegisteredTexture from the grad code instead?
+        cudaGraphicsResource_t pixels_resource0, pixels_resource, pixels_resource2;  // ** can we use RegisteredTexture from the grad code instead?
         CUcontext cuda_context;  // this is nullptr iff the thread-objects have not yet been initialised
     };
 
@@ -164,7 +165,7 @@ class HillOpGpu : public OpKernel
 
         objects.buffer_height = objects.buffer_width = 0;
         objects.framebuffer = objects.pixels_texture = objects.depth_buffer = objects.renderbuffer = 0;
-        objects.pixels_resource = objects.pixels_resource2 = nullptr;
+        objects.pixels_resource0 = objects.pixels_resource = objects.pixels_resource2 = nullptr;
 
         // ** The shaders we initialise here would preferably be global, not per-thread. However, that requires
         // ** fancier synchronisation to ensure everything is set up (and stored somewhere) before use
@@ -206,26 +207,35 @@ class HillOpGpu : public OpKernel
         GLuint framebuffer;
         glGenFramebuffers(1, &framebuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        GLenum draw_buffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
-        glDrawBuffers(2, draw_buffers);  // map fragment-shader output locations to framebuffer attachments
+        GLenum draw_buffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
+        glDrawBuffers(3, draw_buffers);  // map fragment-shader output locations to framebuffer attachments
         if (auto err = glGetError())
             LOG(FATAL) << "framebuffer creation failed: " << err;
 
         // Set up an rgba texture for pixels
         
-        GLuint pixels_texture0, pixels_texture;
+        GLuint pixels_texture0, pixels_texture, pixels_texture2;
         glGenTextures(1, &pixels_texture0);
+         glActiveTexture(GL_TEXTURE0+2);
         glBindTexture(GL_TEXTURE_2D, pixels_texture0);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
-        //glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, pixels_texture0, 0);
         if (auto err = glGetError())
             LOG(FATAL) << "pixel buffer 0 initialisation failed: " << err;
         
         glGenTextures(1, &pixels_texture);
+        glActiveTexture(GL_TEXTURE0+0);
         glBindTexture(GL_TEXTURE_2D, pixels_texture);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, pixels_texture, 0);
+        //glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, pixels_texture, 0);
+        if (auto err = glGetError())
+            LOG(FATAL) << "pixel buffer initialisation failed: " << err;
+            
+        glGenTextures(1, &pixels_texture2);
+        glActiveTexture(GL_TEXTURE0+1);
+        glBindTexture(GL_TEXTURE_2D, pixels_texture2);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
+        //glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, pixels_texture2, 0);
         if (auto err = glGetError())
             LOG(FATAL) << "pixel buffer initialisation failed: " << err;
         
@@ -251,24 +261,39 @@ class HillOpGpu : public OpKernel
             LOG(FATAL) << "depth buffer initialisation failed: " << err;
 
         // Register the pixels texture as a cuda graphics resource
+        cudaGraphicsResource_t pixels_resource0;
+        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource0, pixels_texture0, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
+            
         cudaGraphicsResource_t pixels_resource;
         if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource, pixels_texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
-        //if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource, renderbuffer, GL_RENDERBUFFER, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
+            
+        cudaGraphicsResource_t pixels_resource2;
+        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource2, pixels_texture2, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
             LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
 
 
         // Delete previous buffers, and store new ones in thread-objects
+        if (objects.pixels_resource0)
+            cudaGraphicsUnregisterResource(objects.pixels_resource0);
         if (objects.pixels_resource)
             cudaGraphicsUnregisterResource(objects.pixels_resource);
+        if (objects.pixels_resource2)
+            cudaGraphicsUnregisterResource(objects.pixels_resource2);
         glDeleteFramebuffers(1, &objects.framebuffer);
         glDeleteTextures(1, &objects.pixels_texture0);
         glDeleteTextures(1, &objects.pixels_texture);
+        glDeleteTextures(1, &objects.pixels_texture2);
         glDeleteRenderbuffers(1, &objects.depth_buffer);
         objects.framebuffer = framebuffer;
         objects.pixels_texture0 = pixels_texture0;
         objects.pixels_texture = pixels_texture;
+        objects.pixels_texture2 = pixels_texture2;
         objects.depth_buffer = depth_buffer;
+        objects.pixels_resource0 = pixels_resource0;
         objects.pixels_resource = pixels_resource;
+        objects.pixels_resource2 = pixels_resource2;
 
         LOG(INFO) << "reinitialised framebuffer with size " << objects.buffer_width << " x " << objects.buffer_height;
     }
@@ -308,6 +333,9 @@ public:
 
             Tensor const &background_tensor = context->input(0);
             OP_REQUIRES(context, background_tensor.shape().dims() == 4 && background_tensor.shape().dim_size(1) == objects.frame_height && background_tensor.shape().dim_size(2) == objects.frame_width  && background_tensor.shape().dim_size(3) == objects.channels, errors::InvalidArgument("Rasterise expects background_tensor to be 4D, and bgcolor.shape == [None, height, width, channels]"));
+            
+            Tensor const &normal_tensor = context->input(5);
+            OP_REQUIRES(context, normal_tensor.shape().dims() == 4 && normal_tensor.shape().dim_size(1) == objects.frame_height && normal_tensor.shape().dim_size(2) == objects.frame_width  && normal_tensor.shape().dim_size(3) == objects.channels, errors::InvalidArgument("Rasterise expects normal_tensor to be 4D, and bgcolor.shape == [None, height, width, channels]"));
 
             Tensor const &vertices_tensor = context->input(1);
             OP_REQUIRES(context, vertices_tensor.shape().dims() == 3 && vertices_tensor.shape().dim_size(2) == 4, errors::InvalidArgument("Rasterise expects vertices to be 3D, and vertices.shape[2] == 4"));
@@ -365,6 +393,8 @@ public:
             objects.vertexbuffer.fill_from(vertices_tensor, device.stream(), exec_stream);
             objects.colourbuffer.fill_from(vertex_colors_tensor, device.stream(), exec_stream);
             objects.elementbuffer.fill_from(faces_tensor, device.stream(), exec_stream);
+            
+            
 
             // Map the pixel buffer and copy the background across
             if (auto const err = cudaGraphicsMapResources(1, &objects.pixels_resource, device.stream()))
@@ -374,6 +404,17 @@ public:
                 LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
             launch_background_upload(tiled_pixels_array, background_tensor, objects.buffer_height, objects.buffer_width, device);
             if (auto const err = cudaGraphicsUnmapResources(1, &objects.pixels_resource, device.stream()))  // synchronise the stream with the graphics pipeline
+                LOG(FATAL) << "cudaGraphicsUnmapResources failed" << cudaGetErrorName(err);
+                
+            
+                
+            if (auto const err = cudaGraphicsMapResources(1, &objects.pixels_resource2, device.stream()))
+                LOG(FATAL) << "cudaGraphicsMapResources failed: " << cudaGetErrorName(err);
+            cudaArray_t tiled_pixels_array2;
+            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array2, objects.pixels_resource2, 0, 0))
+                LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
+            launch_background_upload(tiled_pixels_array2, normal_tensor, objects.buffer_height, objects.buffer_width, device);
+            if (auto const err = cudaGraphicsUnmapResources(1, &objects.pixels_resource2, device.stream()))  // synchronise the stream with the graphics pipeline
                 LOG(FATAL) << "cudaGraphicsUnmapResources failed" << cudaGetErrorName(err);
 
 #ifdef TIME_SECTIONS
@@ -391,8 +432,39 @@ public:
             glAttachShader(objects.program, tri_fragment_shader);
             glLinkProgram(objects.program);
             gl_common::print_log(glGetProgramInfoLog, glGetProgramiv, GL_LINK_STATUS, objects.program, "program");
-            GLint loc0 = glGetUniformLocation(objects.program, "TerrainLookup");
-            glUniform1i(loc0, objects.pixels_texture);
+            
+            GLint active_t;
+
+
+            glGetIntegerv(GL_ACTIVE_TEXTURE, &active_t);
+            LOG(INFO) << "active texture: " << active_t;
+            
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, objects.pixels_texture);
+            
+            
+            
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, objects.pixels_texture2);
+
+            
+            
+            glGetIntegerv(GL_ACTIVE_TEXTURE, &active_t);
+            LOG(INFO) << "active texture: " << active_t;
+            
+            GLint samplerArrayLoc = glGetUniformLocation(objects.program, "textures");
+            const GLint samplers[2] = {0,1}; // we've bound our textures in textures 0 and 1.
+            glUniform1iv( samplerArrayLoc, 2, samplers );
+            
+            
+            //GLint loc0 = glGetUniformLocation(objects.program, "TerrainLookup");
+            //glUniform1i(loc0, 0);
+            //GLint loc1 = glGetUniformLocation(objects.program, "NormalLookup");
+            //glUniform1i(loc1, 1);
+            
+            
+            
+            
             
             glUseProgram(objects.program);
             
@@ -460,34 +532,6 @@ public:
                 );
             }
             
-            objects.program2 = glCreateProgram();
-            glAttachShader(objects.program2, tri_vertex_shader);
-            glAttachShader(objects.program2, second_pass_fragment);
-            glLinkProgram(objects.program2);
-            gl_common::print_log(glGetProgramInfoLog, glGetProgramiv, GL_LINK_STATUS, objects.program2, "program2");
-            GLint loc = glGetUniformLocation(objects.program2, "renderedTexture");
-            glUniform1i(loc, objects.pixels_texture0);
-            glUseProgram(objects.program2);
-            
-            for (int index_in_batch = 0; index_in_batch < batch_size; ++index_in_batch) {
-
-                // Find where this frame in the batch should be rendered; set the viewport transform (so geometry
-                // ends up in the right place) and scissor region (so clears/etc. don't escape)
-                int const frame_x = (index_in_batch % frames_per_row) * objects.frame_width;
-                int const frame_y = (index_in_batch / frames_per_row) * objects.frame_height;
-                glViewport(frame_x, frame_y, objects.frame_width, objects.frame_height);
-                glScissor(frame_x, frame_y, objects.frame_width, objects.frame_height);
-
-                glClear(GL_DEPTH_BUFFER_BIT);
-
-                glDrawElementsBaseVertex(
-                    GL_TRIANGLES,
-                    static_cast<int>(faces_tensor.NumElements() / batch_size),
-                    GL_UNSIGNED_INT,
-                    (void *)(index_in_batch * faces_tensor.NumElements() / batch_size * sizeof(int32)),
-                    index_in_batch * vertex_count
-                );
-            }
 
 #ifdef TIME_SECTIONS
             auto const time_C1 = std::chrono::high_resolution_clock::now();
@@ -497,12 +541,12 @@ public:
 
             // Map the pixel buffer to a cuda array, and dispatch the cuda kernel to copy/rearrange pixels into the output tensor
             // Note that this needs to map / unmap every time, unlike vertex-buffer, as opengl modifies the pixels, which isn't allowed when mapped
-            if (auto const err = cudaGraphicsMapResources(1, &objects.pixels_resource, device.stream()))  // this also synchronises pending graphics calls with our stream
+            if (auto const err = cudaGraphicsMapResources(1, &objects.pixels_resource0, device.stream()))  // this also synchronises pending graphics calls with our stream
                 LOG(FATAL) << "cudaGraphicsMapResources failed: " << cudaGetErrorName(err);
-            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array, objects.pixels_resource, 0, 0))
+            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array, objects.pixels_resource0, 0, 0))
                 LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
             launch_pixels_download(*pixels_tensor, tiled_pixels_array, objects.buffer_height, objects.buffer_width, device);
-            if (auto const err = cudaGraphicsUnmapResources(1, &objects.pixels_resource, device.stream()))
+            if (auto const err = cudaGraphicsUnmapResources(1, &objects.pixels_resource0, device.stream()))
                 LOG(FATAL) << "cudaGraphicsUnmapResources failed" << cudaGetErrorName(err);
 
 #ifdef TIME_SECTIONS
