@@ -39,6 +39,7 @@ REGISTER_OP("Hill")
     .Input("vertex_colors: float32")
     .Input("faces: int32")
     .Input("camera_pos: float32")
+    .Input("normal: float32")
     .Output("pixels: float32")
     .SetShapeFn( [] (::tensorflow::shape_inference::InferenceContext *c) {
         int height, width, channels;
@@ -228,6 +229,11 @@ class HillOpGpu : public OpKernel
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, pixels_texture, 0);
         if (auto err = glGetError())
             LOG(FATAL) << "pixel buffer initialisation failed: " << err;
+            
+        glTextureParameteri(pixels_texture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(pixels_texture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(pixels_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(pixels_texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         
         
         /*
@@ -253,13 +259,20 @@ class HillOpGpu : public OpKernel
         // Register the pixels texture as a cuda graphics resource
         cudaGraphicsResource_t pixels_resource;
         if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource, pixels_texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
-        //if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource, renderbuffer, GL_RENDERBUFFER, cudaGraphicsRegisterFlagsSurfaceLoadStore))
             LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
+            
+        /*
+        cudaGraphicsResource_t pixels_resource2;
+        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource2, pixels_texture0, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
+            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
+        */
 
 
         // Delete previous buffers, and store new ones in thread-objects
         if (objects.pixels_resource)
             cudaGraphicsUnregisterResource(objects.pixels_resource);
+        //if (objects.pixels_resource2)
+        //    cudaGraphicsUnregisterResource(objects.pixels_resource2);
         glDeleteFramebuffers(1, &objects.framebuffer);
         glDeleteTextures(1, &objects.pixels_texture0);
         glDeleteTextures(1, &objects.pixels_texture);
@@ -269,6 +282,7 @@ class HillOpGpu : public OpKernel
         objects.pixels_texture = pixels_texture;
         objects.depth_buffer = depth_buffer;
         objects.pixels_resource = pixels_resource;
+        //objects.pixels_resource2 = pixels_resource2;
 
         LOG(INFO) << "reinitialised framebuffer with size " << objects.buffer_width << " x " << objects.buffer_height;
     }
@@ -308,7 +322,7 @@ public:
 
             Tensor const &background_tensor = context->input(0);
             OP_REQUIRES(context, background_tensor.shape().dims() == 4 && background_tensor.shape().dim_size(1) == objects.frame_height && background_tensor.shape().dim_size(2) == objects.frame_width  && background_tensor.shape().dim_size(3) == objects.channels, errors::InvalidArgument("Rasterise expects background_tensor to be 4D, and bgcolor.shape == [None, height, width, channels]"));
-
+            
             Tensor const &vertices_tensor = context->input(1);
             OP_REQUIRES(context, vertices_tensor.shape().dims() == 3 && vertices_tensor.shape().dim_size(2) == 4, errors::InvalidArgument("Rasterise expects vertices to be 3D, and vertices.shape[2] == 4"));
             auto const vertex_count = static_cast<int>(vertices_tensor.shape().dim_size(1));
@@ -321,15 +335,9 @@ public:
             
             Tensor const &camera_pos_tensor = context->input(4);
             cudaMemcpy(camera_pos_cpu, camera_pos_tensor.flat<float>().data(), 9 * sizeof(float), cudaMemcpyDeviceToHost);
-            //LOG(INFO) << "camera pos test " << camera_pos_cpu[0] << ", " << camera_pos_cpu[1] << ", " << camera_pos_cpu[2] << ", " << camera_pos_cpu[3] << ", " << camera_pos_cpu[4] << ", " << camera_pos_cpu[5];
-            //LOG(INFO) << "TIME " << camera_pos_cpu[6];
-            //auto camera_pos = camera_pos_tensor.vec<float>();
-            //auto const camera_pos_count = static_cast<int>(camera_pos_tensor.shape().dim_size(0));
-            //auto const test1 = camera_pos(0);
-            //const float *camera_pos_pt = camera_pos.data();
-            //auto camera_pos = camera_pos_tensor.tensor_data().data();
             
-            //LOG(INFO) << "camera_pos tensor size" << camera_pos_count << ", " << test1;
+            Tensor const &normal_tensor = context->input(5);
+            OP_REQUIRES(context, normal_tensor.shape().dims() == 4 && normal_tensor.shape().dim_size(1) == objects.frame_height && normal_tensor.shape().dim_size(2) == objects.frame_width  && normal_tensor.shape().dim_size(3) == objects.channels, errors::InvalidArgument("Rasterise expects normal_tensor to be 4D, and bgcolor.shape == [None, height, width, channels]"));
 
             // ** would be nice to relax the following to allow mixture of batch-size and singleton dim0's, and to broadcast the latter without re-copying data to the gpu
             int const batch_size = static_cast<int>(vertices_tensor.shape().dim_size(0));
@@ -337,6 +345,9 @@ public:
 
             Tensor *pixels_tensor = nullptr;
             OP_REQUIRES_OK(context, context->allocate_output(0, TensorShape{batch_size, objects.frame_height, objects.frame_width, objects.channels}, &pixels_tensor));
+
+            Tensor *pixels_tensor2 = nullptr;
+            OP_REQUIRES_OK(context, context->allocate_output(0, TensorShape{batch_size, objects.frame_height, objects.frame_width, objects.channels}, &pixels_tensor2));
            
 
 #ifdef TIME_SECTIONS
@@ -369,13 +380,23 @@ public:
             // Map the pixel buffer and copy the background across
             if (auto const err = cudaGraphicsMapResources(1, &objects.pixels_resource, device.stream()))
                 LOG(FATAL) << "cudaGraphicsMapResources failed: " << cudaGetErrorName(err);
-            cudaArray_t tiled_pixels_array;
+            cudaArray_t tiled_pixels_array, tiled_pixels_array2;
             if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array, objects.pixels_resource, 0, 0))
                 LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
             launch_background_upload(tiled_pixels_array, background_tensor, objects.buffer_height, objects.buffer_width, device);
             if (auto const err = cudaGraphicsUnmapResources(1, &objects.pixels_resource, device.stream()))  // synchronise the stream with the graphics pipeline
                 LOG(FATAL) << "cudaGraphicsUnmapResources failed" << cudaGetErrorName(err);
-
+            
+            /*
+            if (auto const err = cudaGraphicsMapResources(1, &objects.pixels_resource2, device.stream()))
+                LOG(FATAL) << "cudaGraphicsMapResources failed: " << cudaGetErrorName(err);
+            if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array2, objects.pixels_resource2, 0, 0))
+                LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
+            launch_background_upload(tiled_pixels_array2, normal_tensor, objects.buffer_height, objects.buffer_width, device);
+            if (auto const err = cudaGraphicsUnmapResources(1, &objects.pixels_resource2, device.stream()))  // synchronise the stream with the graphics pipeline
+                LOG(FATAL) << "cudaGraphicsUnmapResources failed" << cudaGetErrorName(err);
+            */
+            
 #ifdef TIME_SECTIONS
             auto const time_B = std::chrono::high_resolution_clock::now();
 #endif
@@ -393,6 +414,8 @@ public:
             gl_common::print_log(glGetProgramInfoLog, glGetProgramiv, GL_LINK_STATUS, objects.program, "program");
             GLint loc0 = glGetUniformLocation(objects.program, "TerrainLookup");
             glUniform1i(loc0, objects.pixels_texture);
+            GLint loc1 = glGetUniformLocation(objects.program, "NormalLookup");
+            glUniform1i(loc1, objects.pixels_texture0);
             
             glUseProgram(objects.program);
             

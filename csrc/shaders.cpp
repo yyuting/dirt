@@ -83,6 +83,7 @@ layout(location = 1) in vec2 texCoordV;
 layout(location = 0) out vec4 fragColor;
 
 uniform sampler2D TerrainLookup;
+uniform sampler2D NormalLookup;
 uniform float width;
 uniform float height;
     
@@ -93,6 +94,7 @@ vec3 cameraPos;
 vec3 sunColour = vec3(1.0, .75, .6);
 const mat2 rotate2D = mat2(1.932, 1.623, -1.623, 1.952);
 float gTime = 0.0;
+float iTime = 0.0;
 
 //--------------------------------------------------------------------------
 // Noise functions...
@@ -318,6 +320,7 @@ float BinarySubdivision(in vec3 rO, in vec3 rD, float t, float oldT)
 bool Scene(in vec3 rO, in vec3 rD, out float resT, out float type )
 {
     float t;
+    float t_inc = 0.0;
     
     t = -(rO.y + 1.0) / rD.y;
     if ((rD.y) > -0.015) t = 80.0;
@@ -327,10 +330,10 @@ bool Scene(in vec3 rO, in vec3 rD, out float resT, out float type )
     float old_h;
     bool forward = true;
     for (int j = 0; j < 70; j++) {
-        //if (t > 100.0 && forward) st = 0.8;
+        t += t_inc;
         p = rO + t*rD;
         h = Map(p).x;
-        t += max(1.0, abs(h)) * sign(h) * st;
+        t_inc = max(1.0, abs(h)) * sign(h) * st;
         if (h * old_h < 0.0) {
             st /= 2.0;
             forward = false;
@@ -370,10 +373,16 @@ vec3 PostEffects(vec3 rgb, vec2 xy)
 //--------------------------------------------------------------------------
 void main()
 {
+
+    fragColor.x = texture(TerrainLookup, (texCoordV + 1.0) / 2.0).x;
+    //fragColor.yzw = texture(NormalLookup, (texCoordV + 1.0) / 2.0).xyz;
+    fragColor.yzw = vec3(1.0);
+    return;
     vec2 xy;
-    texCoordV.y *= -1.0; 
+    vec2 Coord_pl = texCoordV;
+    Coord_pl.y *= -1.0;
     
-    xy = (texCoordV + 1.0) / 2.0;
+    xy = (Coord_pl + 1.0) / 2.0;
     
     
     //fragColor.xy = xy;
@@ -437,7 +446,23 @@ void main()
     vec3 col;
     float distance;
     float type;
-    if( !Scene(cameraPos, dir, distance, type) )
+    bool hit_ground = Scene(cameraPos, dir, distance, type);
+    if (hit_ground) {
+        fragColor.xyz = vec3(1.0);
+        fragColor.y = distance;
+        vec3 pos = cameraPos + distance * dir;
+        fragColor.z = Terrain(pos.xz).x;
+        
+        fragColor.xyz = pos;
+    }
+    else {
+        fragColor.xyz = vec3(0.0);
+        
+    }
+    //return;
+    
+    
+    if( !hit_ground )
     {
         // Missed scene, now just get the sky...
         col = GetSky(dir);
@@ -446,6 +471,12 @@ void main()
     {   
         // Get world coordinate of landscape...
         vec3 pos = cameraPos + distance * dir;
+        
+        fragColor.xyz = pos;
+        fragColor.y = Map(pos).x;
+        fragColor.z = Terrain(pos.xz).x;
+        //return;
+        
         // Get normal from sampling the high definition height map
         // Use the distance to sample larger gaps to help stop aliasing...
         vec2 p = vec2(0.1, 0.0);
