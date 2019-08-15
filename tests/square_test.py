@@ -15,8 +15,12 @@ def get_hill():
 
     square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
 
-    background = -0.5 * tf.ones([canvas_height, canvas_width, 3], dtype=tf.float32)
-    normal = -0.25 * tf.ones([canvas_height, canvas_width, 3], dtype=tf.float32)
+    background_np = np.zeros([canvas_height, canvas_width, 4])
+    background_np[:, :, 0] = 1.0
+    background_np[:, :, 1] = 2.0
+    background_np[:, :, 2] = 3.0
+    background_np[:, :, 3] = 4.0
+    background = tf.constant(background_np, dtype=tf.float32)
     
     camera_pos = tf.placeholder(tf.float32, 9)
     
@@ -24,7 +28,7 @@ def get_hill():
         vertices=square_vertices,
         faces=[[0, 1, 2], [0, 2, 3]],
         vertex_colors=tf.ones([4, 3]),
-        background=background, normal=normal,
+        background=background,
         camera_pos = camera_pos,
         height=canvas_height, width=canvas_width, channels=3
     ), camera_pos

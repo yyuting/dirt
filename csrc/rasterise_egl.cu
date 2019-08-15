@@ -37,6 +37,13 @@ __global__ void upload_background(cudaSurfaceObject_t dest_surface, TTypes<float
                         src_tensor(iib, y_in_frame, x_in_frame, 2),
                         1.f,
                     }, dest_surface, dest_x * 16, dest_y);
+                } else if (channels == 4) {
+                    surf2Dwrite(float4{
+                        src_tensor(iib, y_in_frame, x_in_frame, 0),
+                        src_tensor(iib, y_in_frame, x_in_frame, 1),
+                        src_tensor(iib, y_in_frame, x_in_frame, 2),
+                        src_tensor(iib, y_in_frame, x_in_frame, 3),
+                    }, dest_surface, dest_x * 16, dest_y);
                 }
             }
         }

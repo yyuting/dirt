@@ -39,7 +39,6 @@ REGISTER_OP("Hill")
     .Input("vertex_colors: float32")
     .Input("faces: int32")
     .Input("camera_pos: float32")
-    .Input("normal: float32")
     .Output("pixels: float32")
     .SetShapeFn( [] (::tensorflow::shape_inference::InferenceContext *c) {
         int height, width, channels;
@@ -127,10 +126,10 @@ class HillOpGpu : public OpKernel
         GLuint framebuffer, depth_buffer;
         RegisteredBuffer vertexbuffer, colourbuffer;
         RegisteredBuffer elementbuffer;
-        GLuint program, program2;
-        GLuint pixels_texture0, pixels_texture, pixels_texture2;
+        GLuint program;
+        GLuint pixels_texture0, pixels_texture;
         GLuint renderbuffer;
-        cudaGraphicsResource_t pixels_resource0, pixels_resource, pixels_resource2;  // ** can we use RegisteredTexture from the grad code instead?
+        cudaGraphicsResource_t pixels_resource0, pixels_resource;  // ** can we use RegisteredTexture from the grad code instead?
         CUcontext cuda_context;  // this is nullptr iff the thread-objects have not yet been initialised
     };
 
@@ -164,8 +163,8 @@ class HillOpGpu : public OpKernel
         gl_common::initialise_context(active_cuda_device);
 
         objects.buffer_height = objects.buffer_width = 0;
-        objects.framebuffer = objects.pixels_texture = objects.depth_buffer = objects.renderbuffer = 0;
-        objects.pixels_resource0 = objects.pixels_resource = objects.pixels_resource2 = nullptr;
+        objects.framebuffer = objects.pixels_texture0 = objects.pixels_texture = objects.depth_buffer = objects.renderbuffer = 0;
+        objects.pixels_resource0 = objects.pixels_resource = nullptr;
 
         // ** The shaders we initialise here would preferably be global, not per-thread. However, that requires
         // ** fancier synchronisation to ensure everything is set up (and stored somewhere) before use
@@ -207,14 +206,14 @@ class HillOpGpu : public OpKernel
         GLuint framebuffer;
         glGenFramebuffers(1, &framebuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        GLenum draw_buffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
+        GLenum draw_buffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
         glDrawBuffers(3, draw_buffers);  // map fragment-shader output locations to framebuffer attachments
         if (auto err = glGetError())
             LOG(FATAL) << "framebuffer creation failed: " << err;
 
         // Set up an rgba texture for pixels
         
-        GLuint pixels_texture0, pixels_texture, pixels_texture2;
+        GLuint pixels_texture0, pixels_texture;
         glGenTextures(1, &pixels_texture0);
          glActiveTexture(GL_TEXTURE0+2);
         glBindTexture(GL_TEXTURE_2D, pixels_texture0);
@@ -227,15 +226,7 @@ class HillOpGpu : public OpKernel
         glActiveTexture(GL_TEXTURE0+0);
         glBindTexture(GL_TEXTURE_2D, pixels_texture);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
-        //glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, pixels_texture, 0);
-        if (auto err = glGetError())
-            LOG(FATAL) << "pixel buffer initialisation failed: " << err;
-            
-        glGenTextures(1, &pixels_texture2);
-        glActiveTexture(GL_TEXTURE0+1);
-        glBindTexture(GL_TEXTURE_2D, pixels_texture2);
-        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
-        //glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, pixels_texture2, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, pixels_texture, 0);
         if (auto err = glGetError())
             LOG(FATAL) << "pixel buffer initialisation failed: " << err;
             
@@ -243,18 +234,6 @@ class HillOpGpu : public OpKernel
         glTextureParameteri(pixels_texture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTextureParameteri(pixels_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTextureParameteri(pixels_texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        
-        
-        /*
-        GLuint renderbuffer;
-        glGenRenderbuffers(1, &renderbuffer);
-        glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
-        //glRenderbufferStorageMultisample(GL_RENDERBUFFER, 2, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, renderbuffer);
-        if (auto err = glGetError())
-            LOG(FATAL) << "color buffer initialisation failed: " << err;
-        */
     
         // Set up a depth buffer
         GLuint depth_buffer;
@@ -273,38 +252,22 @@ class HillOpGpu : public OpKernel
         cudaGraphicsResource_t pixels_resource;
         if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource, pixels_texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
             LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
-            
-        cudaGraphicsResource_t pixels_resource2;
-        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource2, pixels_texture2, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
-            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
-            
-        /*
-        cudaGraphicsResource_t pixels_resource2;
-        if (auto const err = cudaGraphicsGLRegisterImage(&pixels_resource2, pixels_texture0, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore))
-            LOG(FATAL) << "cuGraphicsGLRegisterImage failed: " << cudaGetErrorName(err);
-        */
-
-
+           
         // Delete previous buffers, and store new ones in thread-objects
         if (objects.pixels_resource0)
             cudaGraphicsUnregisterResource(objects.pixels_resource0);
         if (objects.pixels_resource)
             cudaGraphicsUnregisterResource(objects.pixels_resource);
-        if (objects.pixels_resource2)
-            cudaGraphicsUnregisterResource(objects.pixels_resource2);
         glDeleteFramebuffers(1, &objects.framebuffer);
         glDeleteTextures(1, &objects.pixels_texture0);
         glDeleteTextures(1, &objects.pixels_texture);
-        glDeleteTextures(1, &objects.pixels_texture2);
         glDeleteRenderbuffers(1, &objects.depth_buffer);
         objects.framebuffer = framebuffer;
         objects.pixels_texture0 = pixels_texture0;
         objects.pixels_texture = pixels_texture;
-        objects.pixels_texture2 = pixels_texture2;
         objects.depth_buffer = depth_buffer;
         objects.pixels_resource0 = pixels_resource0;
         objects.pixels_resource = pixels_resource;
-        objects.pixels_resource2 = pixels_resource2;
 
         LOG(INFO) << "reinitialised framebuffer with size " << objects.buffer_width << " x " << objects.buffer_height;
     }
@@ -343,11 +306,8 @@ public:
             // Check input tensors and get references to data
 
             Tensor const &background_tensor = context->input(0);
-            OP_REQUIRES(context, background_tensor.shape().dims() == 4 && background_tensor.shape().dim_size(1) == objects.frame_height && background_tensor.shape().dim_size(2) == objects.frame_width  && background_tensor.shape().dim_size(3) == objects.channels, errors::InvalidArgument("Rasterise expects background_tensor to be 4D, and bgcolor.shape == [None, height, width, channels]"));
+            OP_REQUIRES(context, background_tensor.shape().dims() == 4 && background_tensor.shape().dim_size(1) == objects.frame_height && background_tensor.shape().dim_size(2) == objects.frame_width, errors::InvalidArgument("Rasterise expects background_tensor to be 4D, and bgcolor.shape == [None, height, width, channels]"));
             
-            Tensor const &normal_tensor = context->input(5);
-            OP_REQUIRES(context, normal_tensor.shape().dims() == 4 && normal_tensor.shape().dim_size(1) == objects.frame_height && normal_tensor.shape().dim_size(2) == objects.frame_width  && normal_tensor.shape().dim_size(3) == objects.channels, errors::InvalidArgument("Rasterise expects normal_tensor to be 4D, and bgcolor.shape == [None, height, width, channels]"));
-
             Tensor const &vertices_tensor = context->input(1);
             OP_REQUIRES(context, vertices_tensor.shape().dims() == 3 && vertices_tensor.shape().dim_size(2) == 4, errors::InvalidArgument("Rasterise expects vertices to be 3D, and vertices.shape[2] == 4"));
             auto const vertex_count = static_cast<int>(vertices_tensor.shape().dim_size(1));
@@ -360,9 +320,6 @@ public:
             
             Tensor const &camera_pos_tensor = context->input(4);
             cudaMemcpy(camera_pos_cpu, camera_pos_tensor.flat<float>().data(), 9 * sizeof(float), cudaMemcpyDeviceToHost);
-            
-            Tensor const &normal_tensor = context->input(5);
-            OP_REQUIRES(context, normal_tensor.shape().dims() == 4 && normal_tensor.shape().dim_size(1) == objects.frame_height && normal_tensor.shape().dim_size(2) == objects.frame_width  && normal_tensor.shape().dim_size(3) == objects.channels, errors::InvalidArgument("Rasterise expects normal_tensor to be 4D, and bgcolor.shape == [None, height, width, channels]"));
 
             // ** would be nice to relax the following to allow mixture of batch-size and singleton dim0's, and to broadcast the latter without re-copying data to the gpu
             int const batch_size = static_cast<int>(vertices_tensor.shape().dim_size(0));
@@ -371,8 +328,6 @@ public:
             Tensor *pixels_tensor = nullptr;
             OP_REQUIRES_OK(context, context->allocate_output(0, TensorShape{batch_size, objects.frame_height, objects.frame_width, objects.channels}, &pixels_tensor));
 
-            Tensor *pixels_tensor2 = nullptr;
-            OP_REQUIRES_OK(context, context->allocate_output(0, TensorShape{batch_size, objects.frame_height, objects.frame_width, objects.channels}, &pixels_tensor2));
            
 
 #ifdef TIME_SECTIONS
@@ -407,7 +362,7 @@ public:
             // Map the pixel buffer and copy the background across
             if (auto const err = cudaGraphicsMapResources(1, &objects.pixels_resource, device.stream()))
                 LOG(FATAL) << "cudaGraphicsMapResources failed: " << cudaGetErrorName(err);
-            cudaArray_t tiled_pixels_array, tiled_pixels_array2;
+            cudaArray_t tiled_pixels_array;
             if (auto const err = cudaGraphicsSubResourceGetMappedArray(&tiled_pixels_array, objects.pixels_resource, 0, 0))
                 LOG(FATAL) << "cudaGraphicsSubResourceGetMappedArray failed: " << cudaGetErrorName(err);
             launch_background_upload(tiled_pixels_array, background_tensor, objects.buffer_height, objects.buffer_width, device);
@@ -428,36 +383,9 @@ public:
             glAttachShader(objects.program, tri_fragment_shader);
             glLinkProgram(objects.program);
             gl_common::print_log(glGetProgramInfoLog, glGetProgramiv, GL_LINK_STATUS, objects.program, "program");
-
-            GLint active_t;
-
-
-            glGetIntegerv(GL_ACTIVE_TEXTURE, &active_t);
-            LOG(INFO) << "active texture: " << active_t;
             
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, objects.pixels_texture);
-            
-            
-            
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, objects.pixels_texture2);
-
-            
-            
-            glGetIntegerv(GL_ACTIVE_TEXTURE, &active_t);
-            LOG(INFO) << "active texture: " << active_t;
-            
-            GLint samplerArrayLoc = glGetUniformLocation(objects.program, "textures");
-            const GLint samplers[2] = {0,1}; // we've bound our textures in textures 0 and 1.
-            glUniform1iv( samplerArrayLoc, 2, samplers );
-            
-            
-            //GLint loc0 = glGetUniformLocation(objects.program, "TerrainLookup");
-            //glUniform1i(loc0, 0);
-            //GLint loc1 = glGetUniformLocation(objects.program, "NormalLookup");
-            //glUniform1i(loc1, 1);
-            
+            GLint loc0 = glGetUniformLocation(objects.program, "TerrainLookup");
+            glUniform1i(loc0, 0);
             
             
             

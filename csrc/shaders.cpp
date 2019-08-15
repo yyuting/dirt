@@ -82,9 +82,7 @@ layout(location = 0) smooth in vec3 colour_in;
 layout(location = 1) in vec2 texCoordV;
 layout(location = 0) out vec4 fragColor;
 
-//uniform sampler2D TerrainLookup;
-//uniform sampler2D NormalLookup;
-uniform sampler2D[2] textures;
+uniform sampler2D TerrainLookup;
 uniform float width;
 uniform float height;
     
@@ -166,9 +164,8 @@ vec2 Terrain( in vec2 p)
     //scaled_p.x = (p.x + 6.0) / 13.0;
     //scaled_p.y = (p.y - 2.0) / 10.0;
     scaled_p = (p - texture_translation) / texture_scale;
-    //vec4 h = texture(NormalLookup, scaled_p.yx) * height_scale - height_translation;
-    vec4 h = vec4(0.0);
-    return vec2(h.x, 0.0);
+    float h = texture(TerrainLookup, scaled_p.yx).x * height_scale - height_translation;
+    return vec2(h, 0.0);
 }
 
 //--------------------------------------------------------------------------
@@ -375,9 +372,9 @@ vec3 PostEffects(vec3 rgb, vec2 xy)
 //--------------------------------------------------------------------------
 void main()
 {
-    fragColor.x = texture(textures[0], (texCoordV + 1.0) / 2.0).x;
-    fragColor.y = texture(textures[1], (texCoordV + 1.0) / 2.0).x;
-    fragColor.zw = vec2(0.0);
+    vec4 val = texture(TerrainLookup, (texCoordV + 1.0) / 2.0);
+    fragColor.x = val.x + val.y + val.z + val.w;
+    fragColor.yzw = vec3(0.0);
     return;
     vec2 xy;
     vec2 tex_pl = texCoordV;
