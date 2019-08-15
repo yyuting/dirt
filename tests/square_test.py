@@ -15,14 +15,8 @@ def get_hill():
 
     square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
 
-    background = skimage.io.imread('/n/fs/shaderml/OpenSfM/data/hill1_00_full/sparse_grid_texture_linear_same_size.png')
-    if len(background.shape) == 2:
-        background = np.expand_dims(background, 2)
-    if background.shape[2] == 1:
-        background = np.tile(background, (1, 1, 3))
-    background = tf.constant(skimage.img_as_float(background), dtype=tf.float32)
-    
-    normal = background + 1
+    background = -0.5 * tf.ones([canvas_height, canvas_width, 3], dtype=tf.float32)
+    normal = -0.25 * tf.ones([canvas_height, canvas_width, 3], dtype=tf.float32)
     
     camera_pos = tf.placeholder(tf.float32, 9)
     
@@ -30,8 +24,7 @@ def get_hill():
         vertices=square_vertices,
         faces=[[0, 1, 2], [0, 2, 3]],
         vertex_colors=tf.ones([4, 3]),
-        background=background,
-        normal=normal,
+        background=background, normal=normal,
         camera_pos = camera_pos,
         height=canvas_height, width=canvas_width, channels=3
     ), camera_pos
@@ -39,11 +32,11 @@ def get_hill():
 
 def main():
     
-    node, camera_pos = get_hill()
+    node, camera = get_hill()
     sess = tf.Session()
-    camera_pos_val = np.zeros(9)
-    arr = sess.run(node, feed_dict={camera_pos: camera_pos_val})
-    skimage.io.imsave('test.png', np.clip(arr, 0, 1))
+    arr = sess.run(node, feed_dict={camera: np.zeros(9)})
+    print(np.max(arr))
+    print(arr)
     return
     
     nsamples = 100

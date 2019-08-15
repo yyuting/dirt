@@ -166,8 +166,9 @@ def oceanic_opt_flow(background, vertices, vertex_colors, faces, camera_pos, hei
     
 def hill(background, normal, vertices, vertex_colors, faces, camera_pos, height=None, width=None, channels=None, name=None):
 
-    with ops.name_scope(name, 'Rasterise', [background, vertices, vertex_colors, faces]) as scope:
+    with ops.name_scope(name, 'Rasterise', [background, vertices, vertex_colors, faces, normal]) as scope:
         background = tf.convert_to_tensor(background, name='background', dtype=tf.float32)
+        normal = tf.convert_to_tensor(normal, name='normal', dtype=tf.float32)
         vertices = tf.convert_to_tensor(vertices, name='vertices', dtype=tf.float32)
         vertex_colors = tf.convert_to_tensor(vertex_colors, name='vertex_colors', dtype=tf.float32)
         faces = tf.convert_to_tensor(faces, name='faces', dtype=tf.int32)
@@ -178,7 +179,7 @@ def hill(background, normal, vertices, vertex_colors, faces, camera_pos, height=
         if channels is None:
             channels = int(background.get_shape()[2])
         return _rasterise_module.hill(
-            background[np.newaxis, ...], vertices[np.newaxis, ...], vertex_colors[np.newaxis, ...], faces[np.newaxis, ...], camera_pos, normal[np.newaxis, ...],# inputs
+            background[np.newaxis, ...], vertices[np.newaxis, ...], vertex_colors[np.newaxis, ...], faces[np.newaxis, ...], camera_pos, normal[np.newaxis, ...], # inputs
             height, width, channels,  # attributes
             name=scope
         )[0]
