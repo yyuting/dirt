@@ -164,7 +164,7 @@ def oceanic_opt_flow(background, vertices, vertex_colors, faces, camera_pos, hei
             name=scope
         )[0]
     
-def hill(background, vertices, vertex_colors, faces, camera_pos, height=None, width=None, channels=None, name=None):
+def hill(background, normal, vertices, vertex_colors, faces, camera_pos, height=None, width=None, channels=None, name=None):
 
     with ops.name_scope(name, 'Rasterise', [background, vertices, vertex_colors, faces]) as scope:
         background = tf.convert_to_tensor(background, name='background', dtype=tf.float32)
@@ -178,7 +178,7 @@ def hill(background, vertices, vertex_colors, faces, camera_pos, height=None, wi
         if channels is None:
             channels = int(background.get_shape()[2])
         return _rasterise_module.hill(
-            background[np.newaxis, ...], vertices[np.newaxis, ...], vertex_colors[np.newaxis, ...], faces[np.newaxis, ...], camera_pos, # inputs
+            background[np.newaxis, ...], vertices[np.newaxis, ...], vertex_colors[np.newaxis, ...], faces[np.newaxis, ...], camera_pos, normal[np.newaxis, ...],# inputs
             height, width, channels,  # attributes
             name=scope
         )[0]

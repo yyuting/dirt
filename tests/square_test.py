@@ -7,117 +7,44 @@ import skimage
 import time
 import os
 
-canvas_width, canvas_height = 960, 640
+canvas_width, canvas_height = 960, 540
 centre_x, centre_y = 32, 64
 square_size = 16
 
-def get_non_dirt_pixels():
-    xs, ys = tf.meshgrid(tf.range(canvas_width), tf.range(canvas_height))
-    xs = tf.cast(xs, tf.float32) + 0.5
-    ys = tf.cast(ys, tf.float32) + 0.5
-    x_in_range = tf.less_equal(tf.abs(xs - centre_x), square_size / 2)
-    y_in_range = tf.less_equal(tf.abs(ys - centre_y), square_size / 2)
-    return tf.cast(tf.logical_and(x_in_range, y_in_range), tf.float32)
-
-
-def get_dirt_pixels():
+def get_hill():
 
     square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
 
-    #background = skimage.io.imread('/n/fs/shaderml/datas_oceanic/test_img/test_middle_ground00000.png')
-    #background = tf.constant(skimage.img_as_float(background), dtype=tf.float32)
-    background = tf.random_normal([canvas_height, canvas_width, 3], dtype=tf.float32)
+    background = skimage.io.imread('/n/fs/shaderml/OpenSfM/data/hill1_00_full/sparse_grid_texture_linear_same_size.png')
+    if len(background.shape) == 2:
+        background = np.expand_dims(background, 2)
+    if background.shape[2] == 1:
+        background = np.tile(background, (1, 1, 3))
+    background = tf.constant(skimage.img_as_float(background), dtype=tf.float32)
     
-    camera_pos = tf.placeholder(tf.float32, 8)
-    
-    return dirt.rasterise(
-        vertices=square_vertices,
-        faces=[[0, 1, 2], [0, 2, 3]],
-        vertex_colors=tf.ones([4, 3]),
-        background=background,
-        camera_pos = camera_pos,
-        height=canvas_height, width=canvas_width, channels=3
-    ), camera_pos
-
-def get_dirt_pixels_render():
-
-    square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
-
-    #background = skimage.io.imread('/n/fs/shaderml/datas_oceanic/test_img/test_middle_ground00000.png')
-    #background = tf.constant(skimage.img_as_float(background), dtype=tf.float32)
-    background = tf.random_normal([canvas_height, canvas_width, 3], dtype=tf.float32)
-    
-    camera_pos = tf.placeholder(tf.float32, 8)
-    
-    return dirt.rasterise_grad(
-        vertices=square_vertices,
-        faces=[[0, 1, 2], [0, 2, 3]],
-        vertex_colors=tf.ones([4, 3]),
-        background=background,
-        camera_pos = camera_pos,
-        height=canvas_height, width=canvas_width, channels=3
-    ), camera_pos
-
-def get_oceanic_no_cloud():
-
-    square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
-
-    #background = skimage.io.imread('/n/fs/shaderml/datas_oceanic/test_img/test_middle_ground00000.png')
-    #background = tf.constant(skimage.img_as_float(background), dtype=tf.float32)
-    background = tf.random_normal([canvas_height, canvas_width, 3], dtype=tf.float32)
-    
-    camera_pos = tf.placeholder(tf.float32, 8)
-    
-    return dirt.oceanic_no_cloud(
-        vertices=square_vertices,
-        faces=[[0, 1, 2], [0, 2, 3]],
-        vertex_colors=tf.ones([4, 3]),
-        background=background,
-        camera_pos = camera_pos,
-        height=canvas_height, width=canvas_width, channels=3
-    ), camera_pos
-
-def get_oceanic_still_cloud():
-
-    square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
-
-    #background = skimage.io.imread('/n/fs/shaderml/datas_oceanic/test_img/test_middle_ground00000.png')
-    #background = tf.constant(skimage.img_as_float(background), dtype=tf.float32)
-    background = tf.random_normal([canvas_height, canvas_width, 3], dtype=tf.float32)
+    normal = background + 1
     
     camera_pos = tf.placeholder(tf.float32, 9)
     
-    return dirt.oceanic_still_cloud(
+    return dirt.hill(
         vertices=square_vertices,
         faces=[[0, 1, 2], [0, 2, 3]],
         vertex_colors=tf.ones([4, 3]),
         background=background,
+        normal=normal,
         camera_pos = camera_pos,
         height=canvas_height, width=canvas_width, channels=3
     ), camera_pos
 
-def get_oceanic_opt_flow():
-
-    square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
-
-    #background = skimage.io.imread('/n/fs/shaderml/datas_oceanic/test_img/test_middle_ground00000.png')
-    #background = tf.constant(skimage.img_as_float(background), dtype=tf.float32)
-    #background = tf.random_normal([canvas_height, canvas_width, 3], dtype=tf.float32)
-    background = tf.placeholder(tf.float32, [canvas_height, canvas_width, 3])
-    
-    camera_pos = tf.placeholder(tf.float32, 15)
-    
-    return dirt.oceanic_opt_flow(
-        vertices=square_vertices,
-        faces=[[0, 1, 2], [0, 2, 3]],
-        vertex_colors=tf.ones([4, 3]),
-        background=background,
-        camera_pos = camera_pos,
-        height=canvas_height, width=canvas_width, channels=3
-    ), camera_pos, background
-
 
 def main():
+    
+    node, camera_pos = get_hill()
+    sess = tf.Session()
+    camera_pos_val = np.zeros(9)
+    arr = sess.run(node, feed_dict={camera_pos: camera_pos_val})
+    skimage.io.imsave('test.png', np.clip(arr, 0, 1))
+    return
     
     nsamples = 100
     dir = '/n/fs/shaderml/drone_videos/drone_shader_frames'
