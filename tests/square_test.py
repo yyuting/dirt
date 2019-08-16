@@ -15,12 +15,9 @@ def get_hill():
 
     square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
 
-    background_np = np.zeros([canvas_height, canvas_width, 4])
-    background_np[:, :, 0] = 1.0
-    background_np[:, :, 1] = 2.0
-    background_np[:, :, 2] = 3.0
-    background_np[:, :, 3] = 4.0
+    background_np = np.load('/n/fs/shaderml/OpenSfM/data/hill1_00_full/terrain_lookup.npy')
     background = tf.constant(background_np, dtype=tf.float32)
+    skimage.io.imsave('height.png', background_np[:, :, 0])
     
     camera_pos = tf.placeholder(tf.float32, 9)
     
@@ -41,6 +38,7 @@ def main():
     arr = sess.run(node, feed_dict={camera: np.zeros(9)})
     print(np.max(arr))
     print(arr)
+    skimage.io.imsave('test.png', np.clip(arr, 0, 1))
     return
     
     nsamples = 100

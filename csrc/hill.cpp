@@ -191,8 +191,8 @@ class HillOpGpu : public OpKernel
         glGenBuffers(1, &objects.elementbuffer.gl_index);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, objects.elementbuffer.gl_index);
 
-        glEnable(GL_DEPTH_TEST);
-        glEnable(GL_SCISSOR_TEST);
+        //glEnable(GL_DEPTH_TEST);
+        //glEnable(GL_SCISSOR_TEST);
         
     }
 
@@ -232,8 +232,9 @@ class HillOpGpu : public OpKernel
             
         glTextureParameteri(pixels_texture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTextureParameteri(pixels_texture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTextureParameteri(pixels_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTextureParameteri(pixels_texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTextureParameteri(pixels_texture, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        //glTextureParameteri(pixels_texture, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureParameteri(pixels_texture, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     
         // Set up a depth buffer
         GLuint depth_buffer;
@@ -432,7 +433,7 @@ public:
             GLint loc_h = glGetUniformLocation(objects.program, "height");
             glUniform1fv(loc_h, 1, &gl_height);
             
-            glEnable(GL_MULTISAMPLE);
+            //glEnable(GL_MULTISAMPLE);
             
             //LOG(INFO) << "gl float" << (GLfloat) cam_y << ", " << (GLfloat) ang1;
             

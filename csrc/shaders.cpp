@@ -86,9 +86,21 @@ uniform sampler2D TerrainLookup;
 uniform float width;
 uniform float height;
     
+// Rolling hills. By David Hoskins, November 2013.
+// License Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.
+
+// https://www.shadertoy.com/view/Xsf3zX
+
+// v.2.00 Uses eiffie's 'Circle of Confusion' function
+// v.1.02 Camera aberrations.
+// v.1.01 Added better grass, with wind movement.
+
+// For red/cyan 3D...
+//#define STEREO
+
 #define MOD2 vec2(3.07965, 7.4235)
 float PI  = 4.0*atan(1.0);
-vec3 sunLight  = normalize( vec3(  0.35, 0.2,  0.3 ) );
+vec3 sunLight  = normalize( vec3(  0.35, 0.2, 0.3 ) );
 vec3 cameraPos;
 vec3 sunColour = vec3(1.0, .75, .6);
 const mat2 rotate2D = mat2(1.932, 1.623, -1.623, 1.952);
@@ -148,24 +160,31 @@ vec2 Voronoi( in vec2 x )
 
 //--------------------------------------------------------------------------
 
-vec2 texture_x_range = vec2(-45.0, 94.0);
-vec2 texture_y_range = vec2(4.0, 164.0);
+vec2 texture_x_range = vec2(-14.0, 14.0);
+vec2 texture_y_range = vec2(5.0, 25.0);
 vec2 texture_translation;
 vec2 texture_scale;
-float height_translation = 2.92;
-float height_scale = 47.0;
-
+float height_translation = 6.1;
+float height_scale = 10.3;
 
 vec2 Terrain( in vec2 p)
 {
     texture_translation.xy = vec2(texture_x_range.x, texture_y_range.x);
-    texture_scale.xy = vec2(texture_x_range.x + texture_x_range.y, texture_y_range.x + texture_y_range.y);
+    texture_scale.xy = vec2(-texture_x_range.x + texture_x_range.y, -texture_y_range.x + texture_y_range.y);
     vec2 scaled_p;
-    //scaled_p.x = (p.x + 6.0) / 13.0;
-    //scaled_p.y = (p.y - 2.0) / 10.0;
     scaled_p = (p - texture_translation) / texture_scale;
-    float h = texture(TerrainLookup, scaled_p.yx).x * height_scale - height_translation;
+    float h = texture(TerrainLookup, clamp(scaled_p.yx, 0.0, 1.0)).x * height_scale - height_translation;
     return vec2(h, 0.0);
+}
+
+vec3 Terrain_normal( in vec2 p)
+{
+    texture_translation.xy = vec2(texture_x_range.x, texture_y_range.x);
+    texture_scale.xy = vec2(-texture_x_range.x + texture_x_range.y, -texture_y_range.x + texture_y_range.y);
+    vec2 scaled_p;
+    scaled_p = (p - texture_translation) / texture_scale;
+    vec3 h = texture(TerrainLookup, clamp(scaled_p.yx, 0.0, 1.0)).yzw * 2.0 - 1.0;
+    return h;
 }
 
 //--------------------------------------------------------------------------
@@ -213,7 +232,6 @@ vec3 ApplyFog( in vec3  rgb, in float dis, in vec3 dir)
 //--------------------------------------------------------------------------
 vec3 DE(vec3 p)
 {
-    float scale = 3.0;
     float base = Terrain(p.xz).x - 1.3;
     p.xz *= 4.0;
     float height = Noise(p.xz*2.0)*.75 + Noise(p.xz)*.35 + Noise(p.xz*.5)*.2;;
@@ -274,8 +292,9 @@ vec3 GrassBlades(in vec3 rO, in vec3 rD, in vec3 mat, in float dist)
 // Calculate sun light...
 void DoLighting(inout vec3 mat, in vec3 pos, in vec3 normal, in vec3 eyeDir, in float dis)
 {
-    float h = dot(sunLight,normal);
-    mat = mat * sunColour*(max(h, 0.0)+.2);
+    float h = pow(dot(sunLight,normal), 2.0) * 4.0;
+    //mat = mat * sunColour*(max(h, 0.0));
+    mat = mat * sunColour*(h);
 }
 
 //--------------------------------------------------------------------------
@@ -319,16 +338,21 @@ float BinarySubdivision(in vec3 rO, in vec3 rD, float t, float oldT)
 bool Scene(in vec3 rO, in vec3 rD, out float resT, out float type )
 {
     float t;
-    float t_inc = 0.0;
     
     t = -(rO.y + 1.0) / rD.y;
+    //resT = t;
+    //if (rD.y <= 0.0) return true;
+    //else return false;
+    
+    float t_inc = 0.0;
     if ((rD.y) > -0.015) t = 80.0;
     float h;
     float st = 1.0;
     vec3 p;
     float old_h;
     bool forward = true;
-    for (int j = 0; j < 70; j++) {
+    for (int j = 0; j < 2; j++) {
+        //if (t > 100.0 && forward) st = 0.8;
         t += t_inc;
         p = rO + t*rD;
         h = Map(p).x;
@@ -372,10 +396,6 @@ vec3 PostEffects(vec3 rgb, vec2 xy)
 //--------------------------------------------------------------------------
 void main()
 {
-    vec4 val = texture(TerrainLookup, (texCoordV + 1.0) / 2.0);
-    fragColor.x = val.x + val.y + val.z + val.w;
-    fragColor.yzw = vec3(0.0);
-    return;
     vec2 xy;
     vec2 tex_pl = texCoordV;
     tex_pl.y *= -1.0;
@@ -395,15 +415,15 @@ void main()
   ray_dir.x = xy.x * width - width / 2.0;
   ray_dir.y = xy.y * height - height / 2.0;
   ray_dir.z = 0.85 * width;
+  float ray_dir_norm = pow(pow(ray_dir.x, 2.0) + pow(ray_dir.y, 2.0) + pow(ray_dir.z, 2.0), 0.5);
+  ray_dir_norm /= (0.85 * width);
+ 
   ray_dir = normalize(ray_dir);
 
   float ang1 = 0.0;
   float ang2 = 6.8;
   float ang3 = 0.0;
-  cameraPos = vec3(0.0110647, -0.01849679, -1.52716118);
-  //cameraPos.y += 10.0;
-  //cameraPos.z += 3.0;
-  cameraPos.z = -3.0;
+  cameraPos = vec3(-0.00469481, -0.6718629, -0.00539635);
   
   float sin1 = sin(ang1);
   float cos1 = cos(ang1);
@@ -417,7 +437,7 @@ void main()
     // current assumption to align with opensfm reconstruction:
     // should check later whether it is correct
     // d_world = R_z2-y * R_camera^T * d_camera
-   
+
     float r00 = 0.999999573;
     float r01 = -0.0000933038802;
     float r02 = 0.000919791287;
@@ -429,7 +449,7 @@ void main()
     float r22 = -0.0135433672;
     
   
-    ray_dir_p.x = (r00 * ray_dir.x + r10 * ray_dir.y + r20 * ray_dir.z);
+    ray_dir_p.x = -(r00 * ray_dir.x + r10 * ray_dir.y + r20 * ray_dir.z);
     ray_dir_p.z = (r01 * ray_dir.x + r11 * ray_dir.y + r21 * ray_dir.z);
     ray_dir_p.y = (r02 * ray_dir.x + r12 * ray_dir.y + r22 * ray_dir.z);
     
@@ -444,59 +464,97 @@ void main()
     vec3 col;
     float distance;
     float type;
+    
+    float t;
+    
+    t = -(cameraPos.y + 1.0) / dir.y;
+    
+    float t_inc = 0.0;
+    if ((dir.y) > -0.015) t = 80.0;
+    float h;
+    float st = 1.0;
+    vec3 p;
+    float old_h;
+    bool forward = true;
+    for (int j = 0; j < 1; j++) {
+        t += t_inc;
+        p = cameraPos + t*dir;
+        h = Map(p).x;
+        t_inc = max(1.0, abs(h)) * sign(h) * st;
+        if (h * old_h < 0.0) {
+            st /= 2.0;
+            forward = false;
+        }
+        old_h = h;
+    }
+    type = 0.0;
+    
+    texture_translation.xy = vec2(texture_x_range.x, texture_y_range.x);
+    texture_scale.xy = vec2(-texture_x_range.x + texture_x_range.y, -texture_y_range.x + texture_y_range.y);
+    vec2 scaled_p;
+    scaled_p = (p.xz - texture_translation) / texture_scale;
+    //h = texture(TerrainLookup, clamp(scaled_p.yx, 0.0, 1.0)).x;
+    scaled_p.y = (p.z - texture_translation.y / 6.5) / texture_scale.y;
+    scaled_p.y = xy.y;
+    scaled_p.x -= 0.02;
+    h = texelFetch(TerrainLookup, ivec2(scaled_p.yx * vec2(width-1, height-1)), 0).x;
+    h = texelFetch(TerrainLookup, ivec2(ray_dir.zx * vec2(960-1, 540-1)), 0).x;
+    //h = texelFetch(TerrainLookup, ivec2((ray_dir_norm - 1.0) * 4.0 * vec2(960-1, 540-1)), 0).x;
+    //h = (ray_dir_norm - 1.0) * 4.0;
+    fragColor = vec4(h * 1.5);
+    return;
+    
+    
     bool hit_ground = Scene(cameraPos, dir, distance, type);
+    
+    fragColor = vec4(distance / 20.0);
+    return;
+    
     if (hit_ground) {
-        fragColor.xyz = vec3(1.0);
-        fragColor.y = distance;
-        vec3 pos = cameraPos + distance * dir;
-        fragColor.z = Terrain(pos.xz).x;
-        
-        fragColor.xyz = pos;
+        fragColor = vec4(distance / 20.0);
+    } else {
+        fragColor = vec4(0.0);
     }
-    else {
-        fragColor.xyz = vec3(0.0);
-        
-    }
-    //return;
+    return;
     
-    
-    if( !hit_ground )
+    if( !Scene(cameraPos, dir, distance, type) )
     {
         // Missed scene, now just get the sky...
         col = GetSky(dir);
     }
     else
-    {   
+    {
+        
+        
         // Get world coordinate of landscape...
         vec3 pos = cameraPos + distance * dir;
-        
-        fragColor.xyz = pos;
-        fragColor.y = Map(pos).x;
-        fragColor.z = Terrain(pos.xz).x;
-        //return;
-        
+
         // Get normal from sampling the high definition height map
         // Use the distance to sample larger gaps to help stop aliasing...
         vec2 p = vec2(0.1, 0.0);
-        vec3 nor = vec3(0.0,Terrain(pos.xz).x, 0.0);
-        vec3 v2 = nor-vec3(p.x,Terrain(pos.xz+p).x, 0.0);
-        vec3 v3 = nor-vec3(0.0,Terrain(pos.xz-p.yx).x, -p.x);
+        vec3 nor = vec3(0.0, Terrain(pos.xz).x, 0.0);
+        vec3 v2 = nor-vec3(p.x, Terrain(pos.xz+p).x, 0.0);
+        vec3 v3 = nor-vec3(0.0, Terrain(pos.xz-p.yx).x, -p.x);
         nor = cross(v2, v3);
         nor = normalize(nor);
-        
+
+        nor = Terrain_normal(pos.xz);
+
+
 
         // Get the colour using all available data...
         col = TerrainColour(pos, dir, nor, distance, type);
     }
 
-    col = PostEffects(col, xy);
-    
+    col = PostEffects(col, xy);	
+
     #ifdef STEREO
     col *= vec3( isCyan, 1.0-isCyan, 1.0-isCyan );
     #endif
-    
+
     fragColor=vec4(col,1.0);
 }
+
     
 )glsl"
 };
