@@ -206,8 +206,8 @@ class HillOpGpu : public OpKernel
         GLuint framebuffer;
         glGenFramebuffers(1, &framebuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        GLenum draw_buffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
-        glDrawBuffers(3, draw_buffers);  // map fragment-shader output locations to framebuffer attachments
+        GLenum draw_buffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT3};
+        glDrawBuffers(2, draw_buffers);  // map fragment-shader output locations to framebuffer attachments
         if (auto err = glGetError())
             LOG(FATAL) << "framebuffer creation failed: " << err;
 
@@ -226,15 +226,15 @@ class HillOpGpu : public OpKernel
         glActiveTexture(GL_TEXTURE0+0);
         glBindTexture(GL_TEXTURE_2D, pixels_texture);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, objects.buffer_width, objects.buffer_height);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, pixels_texture, 0);
+        //glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, pixels_texture, 0);
         if (auto err = glGetError())
             LOG(FATAL) << "pixel buffer initialisation failed: " << err;
             
         glTextureParameteri(pixels_texture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTextureParameteri(pixels_texture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTextureParameteri(pixels_texture, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-        //glTextureParameteri(pixels_texture, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTextureParameteri(pixels_texture, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(pixels_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(pixels_texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     
         // Set up a depth buffer
         GLuint depth_buffer;
@@ -320,7 +320,7 @@ public:
             OP_REQUIRES(context, faces_tensor.shape().dims() == 3 && faces_tensor.shape().dim_size(2) == 3, errors::InvalidArgument("Rasterise expects faces to be 3D, and faces.shape[2] == 3"));
             
             Tensor const &camera_pos_tensor = context->input(4);
-            cudaMemcpy(camera_pos_cpu, camera_pos_tensor.flat<float>().data(), 9 * sizeof(float), cudaMemcpyDeviceToHost);
+            cudaMemcpy(camera_pos_cpu, camera_pos_tensor.flat<float>().data(), 12 * sizeof(float), cudaMemcpyDeviceToHost);
 
             // ** would be nice to relax the following to allow mixture of batch-size and singleton dim0's, and to broadcast the latter without re-copying data to the gpu
             int const batch_size = static_cast<int>(vertices_tensor.shape().dim_size(0));
@@ -376,7 +376,6 @@ public:
             // Load and compile the vertex and fragment shaders
             GLuint const tri_vertex_shader = gl_common::create_shader(shaders::forward_vertex);
             GLuint const tri_fragment_shader = gl_common::create_shader(shaders::hill);
-            GLuint const second_pass_fragment = gl_common::create_shader(shaders::second_pass_fragment);
         
             // Link the vertex & fragment shaders
             objects.program = glCreateProgram();
@@ -393,39 +392,51 @@ public:
             
             glUseProgram(objects.program);
             
-            GLfloat gl_cam_x = (GLfloat) camera_pos_cpu[0];
-            GLfloat gl_cam_y = (GLfloat) camera_pos_cpu[1];
-            GLfloat gl_cam_z = (GLfloat) camera_pos_cpu[2];
-            GLfloat gl_ang1 = (GLfloat) camera_pos_cpu[3];
-            GLfloat gl_ang2 = (GLfloat) camera_pos_cpu[4];
-            GLfloat gl_ang3 = (GLfloat) camera_pos_cpu[5];
-            GLfloat gl_time = (GLfloat) camera_pos_cpu[6];
-            GLfloat gl_light_z = (GLfloat) camera_pos_cpu[7];
-            GLfloat gl_cloud_t = (GLfloat) camera_pos_cpu[8];
+            GLfloat gl_r00 = (GLfloat) camera_pos_cpu[0];
+            GLfloat gl_r01 = (GLfloat) camera_pos_cpu[1];
+            GLfloat gl_r02 = (GLfloat) camera_pos_cpu[2];
+            GLfloat gl_r10 = (GLfloat) camera_pos_cpu[3];
+            GLfloat gl_r11 = (GLfloat) camera_pos_cpu[4];
+            GLfloat gl_r12 = (GLfloat) camera_pos_cpu[5];
+            GLfloat gl_r20 = (GLfloat) camera_pos_cpu[6];
+            GLfloat gl_r21 = (GLfloat) camera_pos_cpu[7];
+            GLfloat gl_r22 = (GLfloat) camera_pos_cpu[8];
+            GLfloat gl_o0 = (GLfloat) camera_pos_cpu[9];
+            GLfloat gl_o1 = (GLfloat) camera_pos_cpu[10];
+            GLfloat gl_o2 = (GLfloat) camera_pos_cpu[11];
+            
             GLfloat gl_width = (GLfloat) objects.frame_width;
             GLfloat gl_height = (GLfloat) objects.frame_height;
             
-            GLint loc_cam_x = glGetUniformLocation(objects.program, "cam_x");
-            glUniform1fv(loc_cam_x, 1, &gl_cam_x);
-            GLint loc_cam_y = glGetUniformLocation(objects.program, "cam_y");
-            glUniform1fv(loc_cam_y, 1, &gl_cam_y);
-            GLint loc_cam_z = glGetUniformLocation(objects.program, "cam_z");
-            glUniform1fv(loc_cam_z, 1, &gl_cam_z);
-            GLint loc_ang1 = glGetUniformLocation(objects.program, "ang1");
-            glUniform1fv(loc_ang1, 1, &gl_ang1);
-            GLint loc_ang2 = glGetUniformLocation(objects.program, "ang2");
-            glUniform1fv(loc_ang2, 1, &gl_ang2);
-            GLint loc_ang3 = glGetUniformLocation(objects.program, "ang3");
-            glUniform1fv(loc_ang3, 1, &gl_ang3);
+            GLint loc_r00 = glGetUniformLocation(objects.program, "r00");
+            glUniform1fv(loc_r00, 1, &gl_r00);
+            GLint loc_r01 = glGetUniformLocation(objects.program, "r01");
+            glUniform1fv(loc_r01, 1, &gl_r01);
+            GLint loc_r02 = glGetUniformLocation(objects.program, "r02");
+            glUniform1fv(loc_r02, 1, &gl_r02);
+            GLint loc_r10 = glGetUniformLocation(objects.program, "r10");
+            glUniform1fv(loc_r10, 1, &gl_r10);
+            GLint loc_r11 = glGetUniformLocation(objects.program, "r11");
+            glUniform1fv(loc_r11, 1, &gl_r11);
+            GLint loc_r12 = glGetUniformLocation(objects.program, "r12");
+            glUniform1fv(loc_r12, 1, &gl_r12);
+            GLint loc_r20 = glGetUniformLocation(objects.program, "r20");
+            glUniform1fv(loc_r20, 1, &gl_r20);
+            GLint loc_r21 = glGetUniformLocation(objects.program, "r21");
+            glUniform1fv(loc_r21, 1, &gl_r21);
+            GLint loc_r22 = glGetUniformLocation(objects.program, "r22");
+            glUniform1fv(loc_r22, 1, &gl_r22);
             
-            GLint loc_time = glGetUniformLocation(objects.program, "time");
-            glUniform1fv(loc_time, 1, &gl_time);
+            GLint loc_o0 = glGetUniformLocation(objects.program, "o0");
+            glUniform1fv(loc_o0, 1, &gl_o0);
+            GLint loc_o1 = glGetUniformLocation(objects.program, "o1");
+            glUniform1fv(loc_o1, 1, &gl_o1);
+            GLint loc_o2 = glGetUniformLocation(objects.program, "o2");
+            glUniform1fv(loc_o2, 1, &gl_o2);
             
-            GLint loc_lz = glGetUniformLocation(objects.program, "light_z");
-            glUniform1fv(loc_lz, 1, &gl_light_z);
+            //LOG(INFO) << "camera origin " << (GLfloat) gl_o0 << " , " << (GLfloat) gl_o1 << " , " << (GLfloat) gl_o2;
             
-            GLint loc_ct = glGetUniformLocation(objects.program, "cloud_t");
-            glUniform1fv(loc_ct, 1, &gl_cloud_t);
+            
             
             GLint loc_w = glGetUniformLocation(objects.program, "width");
             glUniform1fv(loc_w, 1, &gl_width);
@@ -486,7 +497,7 @@ public:
     }
 private:
     float cam_x, cam_y, cam_z, ang1, ang2, ang3;
-    float camera_pos_cpu[8];
+    float camera_pos_cpu[12];
 };
 
 REGISTER_KERNEL_BUILDER(Name("Hill").Device(DEVICE_GPU), HillOpGpu);

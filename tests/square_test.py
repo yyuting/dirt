@@ -16,10 +16,16 @@ def get_hill():
     square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
 
     background_np = np.load('/n/fs/shaderml/OpenSfM/data/hill1_00_full/terrain_lookup.npy')
+    #xv, yv = np.meshgrid(np.arange(canvas_height), np.arange(canvas_width), indexing='ij')
+    #xv = xv / np.max(xv)
+    #yv = yv / np.max(yv)
+    #background_np = np.zeros([canvas_height, canvas_width, 3])
+    #background_np[:, :, 0] = xv[:, :]
+    #background_np[:, :, 1] = yv[:, :]
     background = tf.constant(background_np, dtype=tf.float32)
     skimage.io.imsave('height.png', background_np[:, :, 0])
     
-    camera_pos = tf.placeholder(tf.float32, 9)
+    camera_pos = tf.placeholder(tf.float32, 12)
     
     return dirt.hill(
         vertices=square_vertices,
@@ -34,8 +40,14 @@ def get_hill():
 def main():
     
     node, camera = get_hill()
+    camera_val = np.load('/n/fs/shaderml/OpenSfM/data/hill1_00_full/dense_start_00270.npy')
     sess = tf.Session()
-    arr = sess.run(node, feed_dict={camera: np.zeros(9)})
+    single_camera_arr = np.empty(12)
+    
+    single_camera_arr = camera_val[0].reshape(12)
+    feed_dict = {camera: single_camera_arr}
+    
+    arr = sess.run(node, feed_dict=feed_dict)
     print(np.max(arr))
     print(arr)
     skimage.io.imsave('test.png', np.clip(arr, 0, 1))

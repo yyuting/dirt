@@ -23,7 +23,9 @@ namespace shaders
         oceanic_still_cloud,
         oceanic_opt_flow,
         oceanic_horizon,
-        hill;
+        oceanic_simple_proxy,
+        hill,
+        texture_debug_minimum;
 }
 
 #endif //SHADERS_H

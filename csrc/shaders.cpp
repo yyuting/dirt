@@ -75,6 +75,51 @@ void main() {
 )glsl"
 };
 
+shaders::Shader const shaders::texture_debug_minimum{
+    "texture_debug_minimum", GL_FRAGMENT_SHADER, HEADER R"glsl(
+
+layout(location = 0) smooth in vec3 colour_in;
+layout(location = 1) in vec2 texCoordV;
+layout(location = 0) out vec4 fragColor;
+
+uniform sampler2D TerrainLookup;
+uniform float width;
+uniform float height;
+
+void main()
+{
+    vec2 xy;
+    vec2 tex_pl = texCoordV;
+
+    xy = (tex_pl + 1.0) / 2.0;
+    
+    //fragColor.xy = xy;
+    //fragColor.zw = vec2(1.0);
+    //return;
+    
+    vec3 ray_dir;
+    ray_dir.x = xy.x * width - width / 2.0;
+    ray_dir.y = xy.y * height - height / 2.0;
+    ray_dir.z = 0.85 * width;
+
+    ray_dir = normalize(ray_dir);
+    vec3 h;
+    
+    h = texture(TerrainLookup, ray_dir.xy).xyz;
+    //h = texture(TerrainLookup, vec2(xy.x * 0.5, xy.y)).xyz;
+    //h = texture(TerrainLookup, texCoordV).xyz;
+    //h = texelFetch(TerrainLookup, ivec2(ray_dir.zx * vec2(width-1, height-1)), 0).x;
+    fragColor.xyz = h;
+    //h = texture(TerrainLookup, xy).x;
+    //h = texelFetch(TerrainLookup, ivec2(xy * vec2(width-1, height-1)), 0).x;
+    //fragColor.xyz = vec3(h);
+    fragColor.w = 1.0;
+    return;
+}
+
+)glsl"
+};
+
 shaders::Shader const shaders::hill{
     "hill", GL_FRAGMENT_SHADER, HEADER R"glsl(
     
@@ -85,6 +130,20 @@ layout(location = 0) out vec4 fragColor;
 uniform sampler2D TerrainLookup;
 uniform float width;
 uniform float height;
+
+uniform float r00;
+uniform float r01;
+uniform float r02;
+uniform float r10;
+uniform float r11;
+uniform float r12;
+uniform float r20;
+uniform float r21;
+uniform float r22;
+
+uniform float o0;
+uniform float o1;
+uniform float o2;
     
 // Rolling hills. By David Hoskins, November 2013.
 // License Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.
@@ -351,7 +410,7 @@ bool Scene(in vec3 rO, in vec3 rD, out float resT, out float type )
     vec3 p;
     float old_h;
     bool forward = true;
-    for (int j = 0; j < 2; j++) {
+    for (int j = 0; j < 100; j++) {
         //if (t > 100.0 && forward) st = 0.8;
         t += t_inc;
         p = rO + t*rD;
@@ -401,12 +460,7 @@ void main()
     tex_pl.y *= -1.0;
     
     xy = (tex_pl + 1.0) / 2.0;
-    
-    
-    //fragColor.xy = xy;
-    //fragColor.zw = vec2(0.0);
-    //return;
-    
+        
     if (abs(xy.y * height - height / 2.0) / (width / 2.0) >= 0.5625) {
         fragColor = vec4(0.0);
         return;
@@ -423,23 +477,11 @@ void main()
   float ang1 = 0.0;
   float ang2 = 6.8;
   float ang3 = 0.0;
-  cameraPos = vec3(-0.00469481, -0.6718629, -0.00539635);
+  cameraPos = vec3(-o0, o2, o1);
   
-  float sin1 = sin(ang1);
-  float cos1 = cos(ang1);
-  float sin2 = sin(ang2);
-  float cos2 = cos(ang2);
-  float sin3 = sin(ang3);
-  float cos3 = cos(ang3);
-    
-  vec3 ray_dir_p;
-    
-    // current assumption to align with opensfm reconstruction:
-    // should check later whether it is correct
-    // d_world = R_z2-y * R_camera^T * d_camera
-
-    float r00 = 0.999999573;
-    float r01 = -0.0000933038802;
+  
+  float r00 = 0.999999573;
+  float r01 = -0.0000933038802;
     float r02 = 0.000919791287;
     float r10 = 0.000918443273 ;
     float r11 = -0.0135434586;
@@ -448,14 +490,16 @@ void main()
     float r21 = 0.999908279 ;
     float r22 = -0.0135433672;
     
+  vec3 ray_dir_p;
+    
+    // current assumption to align with opensfm reconstruction:
+    // should check later whether it is correct
+    // d_world = R_z2-y * R_camera^T * d_camera
+    
   
     ray_dir_p.x = -(r00 * ray_dir.x + r10 * ray_dir.y + r20 * ray_dir.z);
     ray_dir_p.z = (r01 * ray_dir.x + r11 * ray_dir.y + r21 * ray_dir.z);
     ray_dir_p.y = (r02 * ray_dir.x + r12 * ray_dir.y + r22 * ray_dir.z);
-    
-    //ray_dir_p.x = ray_dir.x;
-    //ray_dir_p.z = -ray_dir.z;
-    //ray_dir_p.y = -ray_dir.y;
     
     
   vec3 dir = ray_dir_p;
@@ -466,56 +510,6 @@ void main()
     float type;
     
     float t;
-    
-    t = -(cameraPos.y + 1.0) / dir.y;
-    
-    float t_inc = 0.0;
-    if ((dir.y) > -0.015) t = 80.0;
-    float h;
-    float st = 1.0;
-    vec3 p;
-    float old_h;
-    bool forward = true;
-    for (int j = 0; j < 1; j++) {
-        t += t_inc;
-        p = cameraPos + t*dir;
-        h = Map(p).x;
-        t_inc = max(1.0, abs(h)) * sign(h) * st;
-        if (h * old_h < 0.0) {
-            st /= 2.0;
-            forward = false;
-        }
-        old_h = h;
-    }
-    type = 0.0;
-    
-    texture_translation.xy = vec2(texture_x_range.x, texture_y_range.x);
-    texture_scale.xy = vec2(-texture_x_range.x + texture_x_range.y, -texture_y_range.x + texture_y_range.y);
-    vec2 scaled_p;
-    scaled_p = (p.xz - texture_translation) / texture_scale;
-    //h = texture(TerrainLookup, clamp(scaled_p.yx, 0.0, 1.0)).x;
-    scaled_p.y = (p.z - texture_translation.y / 6.5) / texture_scale.y;
-    scaled_p.y = xy.y;
-    scaled_p.x -= 0.02;
-    h = texelFetch(TerrainLookup, ivec2(scaled_p.yx * vec2(width-1, height-1)), 0).x;
-    h = texelFetch(TerrainLookup, ivec2(ray_dir.zx * vec2(960-1, 540-1)), 0).x;
-    //h = texelFetch(TerrainLookup, ivec2((ray_dir_norm - 1.0) * 4.0 * vec2(960-1, 540-1)), 0).x;
-    //h = (ray_dir_norm - 1.0) * 4.0;
-    fragColor = vec4(h * 1.5);
-    return;
-    
-    
-    bool hit_ground = Scene(cameraPos, dir, distance, type);
-    
-    fragColor = vec4(distance / 20.0);
-    return;
-    
-    if (hit_ground) {
-        fragColor = vec4(distance / 20.0);
-    } else {
-        fragColor = vec4(0.0);
-    }
-    return;
     
     if( !Scene(cameraPos, dir, distance, type) )
     {
@@ -1916,6 +1910,272 @@ void main() {
     sundot = clamp(dot(rd,light),0.0,1.0);
     float refl = (0.5*pow( sundot, 10.0 )+0.25*pow( sundot, 3.5)+.75*pow( sundot, 300.0));
     col.y = refl;
+  }
+
+  fragColor.xyz = col;
+  
+}
+)glsl"
+};
+
+shaders::Shader const shaders::oceanic_simple_proxy{
+    "oceanic", GL_FRAGMENT_SHADER, HEADER R"glsl(
+
+layout(location = 0) smooth in vec3 colour_in;
+layout(location = 1) in vec2 texCoordV;
+layout(location = 0) out vec4 fragColor;
+
+uniform sampler2D backgroundTexture;
+uniform float cam_x;
+uniform float cam_y;
+uniform float cam_z;
+uniform float ang1;
+uniform float ang2;
+uniform float ang3;
+uniform float time;
+uniform float light_z;
+uniform float width;
+uniform float height;
+
+float waterlevel = 70.0;        // height of the water
+float wavegain   = 0.75;       // change to adjust the general water wave level
+float large_waveheight = 0.75; // change to adjust the "heavy" waves (set to 0.0 to have a very still ocean :)
+float small_waveheight = 1.5; // change to adjust the small waves
+
+vec3 fogcolor    = vec3( 0.4, 0.4, 1.2 );              
+vec3 skybottom   = vec3( 0.5, 0.5, 1.3 );
+vec3 skytop      = vec3(0.15, 0.1, 0.7);
+vec3 reflskycolor= vec3(0.1, 0.1, 0.15);
+vec3 watercolor  = vec3(0.1, 0.2, 0.5);
+
+vec3 light       = normalize( vec3(  0.1, 0.25,  light_z ) );
+
+// random/hash function
+float hash( float n )
+{
+  return fract(cos(n)*41415.92653);
+}
+
+float rand(vec2 n) {
+    return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
+}
+
+float noise(vec2 p){
+    vec2 ip = floor(p);
+    vec2 u = fract(p);
+    u = u*u*(3.0-2.0*u);
+
+    float res = mix(
+        mix(rand(ip),rand(ip+vec2(1.0,0.0)),u.x),
+        mix(rand(ip+vec2(0.0,1.0)),rand(ip+vec2(1.0,1.0)),u.x),u.y);
+    return res;
+}
+
+// 3d noise function
+float noise( in vec3 x )
+{
+  vec3 p  = floor(x);
+  vec3 f  = smoothstep(0.0, 1.0, fract(x));
+  float n = p.x + p.y*57.0 + 113.0*p.z;
+
+  return mix(mix(mix( hash(n+  0.0), hash(n+  1.0),f.x),
+    mix( hash(n+ 57.0), hash(n+ 58.0),f.x),f.y),
+    mix(mix( hash(n+113.0), hash(n+114.0),f.x),
+    mix( hash(n+170.0), hash(n+171.0),f.x),f.y),f.z);
+}
+
+
+mat3 m = mat3( 0.00,  1.60,  1.20, -1.60,  0.72, -0.96, -1.20, -0.96,  1.28 );
+
+// Fractional Brownian motion
+float fbm( vec3 p )
+{
+  float f = 0.5000*noise( p ); p = m*p*1.1;
+  f += 0.2500*noise( p ); p = m*p*1.2;
+  f += 0.1666*noise( p ); p = m*p;
+  f += 0.0834*noise( p );
+  return f;
+}
+
+mat2 m2 = mat2(1.6,-1.2,1.2,1.6);
+
+// Fractional Brownian motion
+float fbm( vec2 p )
+{
+  float f = 0.5000*noise( p ); p = m2*p;
+  f += 0.2500*noise( p ); p = m2*p;
+  f += 0.1666*noise( p ); p = m2*p;
+  f += 0.0834*noise( p );
+  return f;
+}
+
+// this calculates the water as a height of a given position
+float water( vec2 p )
+{
+  float height = waterlevel;
+
+  vec2 shift1 = 0.001*vec2( time*260.0*2.0, time*100.0*2.0 );
+  vec2 shift2 = 0.001*vec2( time*150.0*2.0, -time*230.0*2.0 );
+
+  // coarse crossing 'ocean' waves...
+  float wave = 0.0;
+  wave += cos(p.x*0.021  + shift2.x)*4.5;
+  wave += cos(p.x*0.0172+p.y*0.010 + shift2.x*1.121)*4.0;
+  wave -= cos(p.x*0.00104+p.y*0.005 + shift2.x*0.121)*4.0;
+  // ...added by some smaller faster waves...
+  wave += cos(p.x*0.02221+p.y*0.01233+shift2.x*3.437)*5.0;
+  wave += cos(p.x*0.03112+p.y*0.01122+shift2.x*4.269)*2.5 ;
+  wave *= large_waveheight;
+  wave -= fbm(p*0.004-shift2*.5)*small_waveheight*24.;
+  // ...added by some distored random waves (which makes the water looks like water :)
+
+  float amp = 6.*small_waveheight;
+  shift1 *= .3;
+  for (int i=0; i<3; i++)
+  {
+    wave -= abs(sin((noise(p*0.01+shift1)-.5)*3.14))*amp;
+    amp *= .51;
+    shift1 *= 1.841;
+    p *= m2*0.9331;
+  }
+
+  height += wave;
+  return height;
+}
+
+float trace_fog(in vec3 rStart, in vec3 rDirection ) {
+  return 1.0;
+}
+
+bool trace(in vec3 rStart, in vec3 rDirection, in float sundot, out float fog, out float dist)
+{
+  float h = 20.0;
+  float t = -rStart.y / rDirection.y;
+  float st = 0.5;
+  float alpha = 0.1;
+  float asum = 0.0;
+  vec3 p = rStart;
+  float old_h = 0.0;
+    
+  for( int j=1000; j<1010; j++ )
+  {
+    // some speed-up if all is far away...
+    if (t > 500.0) st = 1.0;
+    if (t > 800.0) st = 2.0;
+    if (t > 1500.0) st = 3.0;
+
+    p = rStart + t*rDirection; // calc current ray position
+
+#if RENDER_GODRAYS
+    if (rDirection.y>0. && sundot > 0.001 && t>400.0 && t < 2500.0)
+    {
+      alpha = sundot * clamp((p.y-waterlevel)/waterlevel, 0.0, 1.0) * st * 0.024*smoothstep(0.80, 1.0, trace_fog(p,light));
+      asum  += (1.0-asum)*alpha;
+      if (asum > 0.9)
+        break;
+    }
+#endif
+
+    h = p.y - water(p.xz);
+
+    t += max(1.0, abs(h)) * sign(h) * st;
+      
+    if (old_h * h < 0.0) st /= 2.0;
+    
+    old_h = h;
+  }
+
+  dist = t; 
+  fog = asum;
+  if (rDirection.y > 0.0) return false;
+  return true;
+}
+
+void main() {
+  vec2 xy = texCoordV;
+  fragColor = vec4(0.0);
+  fragColor.w = 1.0;
+
+
+  xy = texCoordV;
+  vec4 sample_noise = texture(backgroundTexture, (texCoordV + 1.0) / 2.0);
+  xy.x += sample_noise.x / width;
+  xy.y += sample_noise.y / height;
+
+  // get camera position and view direction
+  vec3 campos;
+  campos.x = cam_x;
+  campos.y = cam_y;
+  campos.z = cam_z;
+  
+  vec3 ray_dir;
+  ray_dir.x = (xy.x + 1.0) * width / 2.0 - width / 2.0;
+  ray_dir.y = (xy.y + 1.0) * height / 2.0 - height / 2.0;
+  ray_dir.z = 1.73 * width / 2.0;
+  ray_dir = normalize(ray_dir);
+  
+  float sin1 = sin(ang1);
+  float cos1 = cos(ang1);
+  float sin2 = sin(ang2);
+  float cos2 = cos(ang2);
+  float sin3 = sin(ang3);
+  float cos3 = cos(ang3);
+    
+  vec3 ray_dir_p;
+  ray_dir_p.x = cos2 * cos3 * ray_dir.x + (-cos1 * sin3 + sin1 * sin2 * cos3) * ray_dir.y + (sin1 * sin3 + cos1 * sin2 * cos3) * ray_dir.z;
+  ray_dir_p.y = cos2 * sin3 * ray_dir.x + (cos1 * cos3 + sin1 * sin2 * sin3) * ray_dir.y + (-sin1 * cos3 + cos1 * sin2 * sin3) * ray_dir.z;
+  ray_dir_p.z = -sin2 * ray_dir.x + sin1 * cos2 * ray_dir.y + cos1 * cos2 * ray_dir.z;
+  
+  vec3 rd = ray_dir_p;
+
+  float sundot = clamp(dot(rd,light),0.0,1.0);
+
+  vec3 col = vec3(0.0);
+  float fog=0.0, dist=0.0;
+
+  if (!trace(campos,rd,sundot, fog, dist)) {
+      float t = pow(1.0-0.7*rd.y, 15.0);
+      col = 0.8*(skybottom*t + skytop*(1.0-t));
+      // sun
+      col += 0.47*vec3(1.6,1.4,1.0)*pow( sundot, 350.0 );
+      // sun haze
+      col += 0.4*vec3(0.8,0.9,1.0)*pow( sundot, 2.0 );
+
+      col += vec3(0.5, 0.4, 0.3)*fog;
+  } else {
+    vec3 wpos = campos + dist*rd; // calculate position where ray meets water
+
+    // calculate water-mirror
+    vec2 xdiff = vec2(0.1, 0.0)*wavegain*4.;
+    vec2 ydiff = vec2(0.0, 0.1)*wavegain*4.;
+
+    // get the reflected ray direction
+    rd = reflect(rd, normalize(vec3(water(wpos.xz-xdiff) - water(wpos.xz+xdiff), 1.0, water(wpos.xz-ydiff) - water(wpos.xz+ydiff))));
+    float refl = 1.0-clamp(dot(rd,vec3(0.0, 1.0, 0.0)),0.0,1.0);
+
+    float sh = smoothstep(0.2, 1.0, trace_fog(wpos+20.0*rd,rd))*.7+.3;
+    // water reflects more the lower the reflecting angle is...
+    float wsky   = refl*sh;     // reflecting (sky-color) amount
+    float wwater = (1.0-refl)*sh; // water-color amount
+
+    float sundot = clamp(dot(rd,light),0.0,1.0);
+
+    // watercolor
+
+    col = wsky*reflskycolor; // reflecting sky-color
+    col += wwater*watercolor;
+    col += vec3(.003, .005, .005) * (wpos.y-waterlevel+30.);
+
+    // Sun
+    float wsunrefl = wsky*(0.5*pow( sundot, 10.0 )+0.25*pow( sundot, 3.5)+.75*pow( sundot, 300.0));
+    col += vec3(1.5,1.3,1.0)*wsunrefl; // sun reflection
+
+    float fo = 1.0-exp(-pow(0.0003*dist, 1.5));
+    vec3 fco = fogcolor + 0.6*vec3(0.6,0.5,0.4)*pow( sundot, 4.0 );
+    col = mix( col, fco, fo );
+
+    // add god-rays
+    col += vec3(0.5, 0.4, 0.3)*fog;
   }
 
   fragColor.xyz = col;

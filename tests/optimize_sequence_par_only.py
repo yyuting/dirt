@@ -21,6 +21,8 @@ import sys
 from optimize_horizon import ransac_fit_with_weights, get_dirt_pixels
 linear_model.RANSACRegressor.ransac_fit_with_weights = ransac_fit_with_weights
 
+from optimize_sequence import cheat_roll, dims
+
 canvas_width, canvas_height = 960, 640
 centre_x, centre_y = 32, 64
 square_size = 16
@@ -29,9 +31,11 @@ read_1st_round_from_file = False
 
 def main():
     
-    dir = '/n/fs/shaderml/deeplab-pytorch/result'
-    highlight_dir = '/n/fs/shaderml/drone_videos/drone_frames/ocean3_00/highlight'
-    orig_img_dir = '/n/fs/shaderml/drone_videos/drone_frames/ocean3_00'
+    # TODO: currently cheated a bit by assuming roll is 0 all the time
+    
+    dir = '/n/fs/shaderml/deeplab-pytorch/result/clip01'
+    highlight_dir = '/n/fs/shaderml/drone_videos/drone_frames/ocean3_01/highlight'
+    orig_img_dir = '/n/fs/shaderml/drone_videos/drone_frames/ocean3_01'
     out_dir = 'optimize_debug/clip01'
 
     files = os.listdir(orig_img_dir)
@@ -42,12 +46,14 @@ def main():
     feed_dict_arr = np.zeros(8)
     feed_dict_arr[1] = 200.0
     feed_dict_arr[7] = 0.9
+    if cheat_roll:
+        feed_dict_arr[5] = 0.0
     img = np.zeros([canvas_height, canvas_width, 3])
     
     nframes = len(files)
     
-    all_frames_seg = np.load('all_frames_seg.npy')
-    arr = np.load('all_frames_par.npy')
+    all_frames_seg = np.load(os.path.join(out_dir, 'all_frames_seg.npy'))
+    arr = np.load(os.path.join(out_dir, 'all_frames_par.npy'))
     # normalize par
     min_val = np.min(arr, axis=0)
     max_val = np.max(arr, axis=0)
@@ -55,7 +61,7 @@ def main():
     
     dim = 16
     x_init = np.zeros(dim)
-    zero_tangent = np.zeros(4)
+    zero_tangent = np.zeros(dims)
 
     def h00(t):
         return 2 * t ** 3 - 3 * t ** 2 + 1
@@ -75,9 +81,9 @@ def main():
     
     if sys.argv[1] == 'whole_opt':
         num_keyframes = all_frames_par.shape[0] // keyframe_freq + 1
-        x_init = np.zeros(4*num_keyframes)
+        x_init = np.zeros(dims*num_keyframes)
         for i in range(num_keyframes):
-            x_init[4*i:4*(i+1)] = all_frames_par[i*keyframe_freq, :]
+            x_init[dims*i:dims*(i+1)] = all_frames_par[i*keyframe_freq, :]
 
         def opt_func(x):
             loss = 0.0
@@ -88,18 +94,18 @@ def main():
                     # UNSAFE assumption: beginning and ending tangent are 0
                     if keyframe_idx == 0:
                         m_before = zero_tangent
-                        p_before = x[:4]
+                        p_before = x[:dims]
                     else:
                         m_before = m_after
                         p_before = p_after
                     if keyframe_idx >= num_keyframes - 2:
                         m_after = zero_tangent
                     else:
-                        m_after = m_after = (x[(keyframe_idx+2)*4:(keyframe_idx+3)*4] - p_before) / 2.0 * 3.0
+                        m_after = m_after = (x[(keyframe_idx+2)*dims:(keyframe_idx+3)*dims] - p_before) / 2.0 * 3.0
                     if keyframe_idx >= num_keyframes - 1:
                         p_after = p_before
                     else:
-                        p_after = x[(keyframe_idx+1)*4:(keyframe_idx+2)*4]
+                        p_after = x[(keyframe_idx+1)*dims:(keyframe_idx+2)*dims]
                         
                     current_par = p_before
                 else:
@@ -115,7 +121,7 @@ def main():
         print(res)
 
         last_result = res.x
-        np.save('par_only_whole_%d.npy' % keyframe_freq, last_result)
+        np.save(os.path.join(out_dir, 'par_only_whole_%d.npy' % keyframe_freq), last_result)
     elif sys.argv[1] == 'opt':
         start_ind = 0
         end_ind = 30
@@ -202,10 +208,10 @@ def main():
             
     elif sys.argv[1] == 'render':
         if len(sys.argv) > 2 and sys.argv[2] == 'whole':
-            nframes = 561
+            #nframes = 561
             prefix = '_whole'
-            x = np.load('par_only_whole_%d.npy' % keyframe_freq)
-            x = x.reshape((x.shape[0]//4, 4))
+            x = np.load(os.path.join(out_dir, 'par_only_whole_%d.npy') % keyframe_freq)
+            x = x.reshape((x.shape[0]//dims, dims))
             nframes = (x.shape[0] - 1) * keyframe_freq + 1
         else:
             nframes = 551
@@ -220,21 +226,21 @@ def main():
                 x[(start_ind//10)+2, :] = current_res[-8:-4]
             x[-1, :] = current_res[-4:]
 
-        optimized_all_par = np.empty((nframes, 4))
+        optimized_all_par = np.empty((nframes, dims))
 
         for i in range(nframes):
             if i % keyframe_freq == 0:
                 # if keyframe
                 keyframe_idx = i // keyframe_freq
                 if keyframe_idx == 0:
-                    m_before = np.zeros(4)
+                    m_before = np.zeros(dims)
                     p_before = x[keyframe_idx, :]
                 else:
                     m_before = m_after
                     p_before = p_after
 
                 if keyframe_idx >= x.shape[0] - 2:
-                    m_after = np.zeros(4)
+                    m_after = np.zeros(dims)
                 else:
                     m_after = (x[keyframe_idx+2, :] - p_before) / 2.0 * 3.0
 
@@ -252,19 +258,21 @@ def main():
 
         optimized_all_par *= (max_val - min_val)
         optimized_all_par += min_val
-        np.save('optimized_all_par%s.npy' % prefix, optimized_all_par)
+        np.save(os.path.join(out_dir, 'optimized_all_par%s.npy' % prefix), optimized_all_par)
         #return
         session = tf.Session()
         with session.as_default():
 
+            
             dirt_node, camera_pos = get_dirt_pixels()
             line_X = np.arange(canvas_width)[:, np.newaxis]
 
             for i in range(0, nframes, 50):
                 feed_dict_arr[3] = optimized_all_par[i, 0]
                 feed_dict_arr[4] = optimized_all_par[i, 1]
-                feed_dict_arr[5] = optimized_all_par[i, 2]
-                feed_dict_arr[7] = optimized_all_par[i, 3]
+                if not cheat_roll:
+                    feed_dict_arr[5] = optimized_all_par[i, 2]
+                feed_dict_arr[7] = optimized_all_par[i, -1]
                 current_seg = session.run(dirt_node, feed_dict={camera_pos: feed_dict_arr})
                 
                 orig_img_name = os.path.join(orig_img_dir, '%05d.png' % i)

@@ -126,6 +126,25 @@ def oceanic_no_cloud(background, vertices, vertex_colors, faces, camera_pos, hei
             name=scope
         )[0]
     
+def oceanic_simple_proxy(background, vertices, vertex_colors, faces, camera_pos, height=None, width=None, channels=None, name=None):
+
+    with ops.name_scope(name, 'Rasterise', [background, vertices, vertex_colors, faces]) as scope:
+        background = tf.convert_to_tensor(background, name='background', dtype=tf.float32)
+        vertices = tf.convert_to_tensor(vertices, name='vertices', dtype=tf.float32)
+        vertex_colors = tf.convert_to_tensor(vertex_colors, name='vertex_colors', dtype=tf.float32)
+        faces = tf.convert_to_tensor(faces, name='faces', dtype=tf.int32)
+        if height is None:
+            height = int(background.get_shape()[0])
+        if width is None:
+            width = int(background.get_shape()[1])
+        if channels is None:
+            channels = int(background.get_shape()[2])
+        return _rasterise_module.oceanic_simple_proxy(
+            background[np.newaxis, ...], vertices[np.newaxis, ...], vertex_colors[np.newaxis, ...], faces[np.newaxis, ...], camera_pos, # inputs
+            height, width, channels,  # attributes
+            name=scope
+        )[0]
+    
 def oceanic_still_cloud(background, vertices, vertex_colors, faces, camera_pos, height=None, width=None, channels=None, name=None):
 
     with ops.name_scope(name, 'Rasterise', [background, vertices, vertex_colors, faces]) as scope:
