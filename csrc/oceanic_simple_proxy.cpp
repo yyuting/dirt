@@ -30,7 +30,7 @@
 
 using namespace tensorflow;
 
-REGISTER_OP("OceanicStillCloud")
+REGISTER_OP("OceanicSimpleProxy")
     .Attr("height: int")
     .Attr("width: int")
     .Attr("channels: int = 3")
@@ -110,7 +110,7 @@ public:
     }
 };
 
-class OceanicStillCloudOpGpu : public OpKernel
+class OceanicSimpleProxyOpGpu : public OpKernel
 {
     struct PerThreadObjects
     {
@@ -275,7 +275,7 @@ class OceanicStillCloudOpGpu : public OpKernel
 
 public:
 
-    explicit OceanicStillCloudOpGpu(OpKernelConstruction* context) :
+    explicit OceanicSimpleProxyOpGpu(OpKernelConstruction* context) :
         OpKernel(context), hwc(get_hwc(context))
     {
         
@@ -320,7 +320,7 @@ public:
             OP_REQUIRES(context, faces_tensor.shape().dims() == 3 && faces_tensor.shape().dim_size(2) == 3, errors::InvalidArgument("Rasterise expects faces to be 3D, and faces.shape[2] == 3"));
             
             Tensor const &camera_pos_tensor = context->input(4);
-            cudaMemcpy(camera_pos_cpu, camera_pos_tensor.flat<float>().data(), 9 * sizeof(float), cudaMemcpyDeviceToHost);
+            cudaMemcpy(camera_pos_cpu, camera_pos_tensor.flat<float>().data(), 8 * sizeof(float), cudaMemcpyDeviceToHost);
             //LOG(INFO) << "camera pos test " << camera_pos_cpu[0] << ", " << camera_pos_cpu[1] << ", " << camera_pos_cpu[2] << ", " << camera_pos_cpu[3] << ", " << camera_pos_cpu[4] << ", " << camera_pos_cpu[5];
             //LOG(INFO) << "TIME " << camera_pos_cpu[6];
             //auto camera_pos = camera_pos_tensor.vec<float>();
@@ -382,7 +382,7 @@ public:
 
             // Load and compile the vertex and fragment shaders
             GLuint const tri_vertex_shader = gl_common::create_shader(shaders::forward_vertex);
-            GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic_still_cloud);
+            GLuint const tri_fragment_shader = gl_common::create_shader(shaders::oceanic_simple_proxy);
             GLuint const second_pass_fragment = gl_common::create_shader(shaders::second_pass_fragment);
         
             // Link the vertex & fragment shaders
@@ -404,7 +404,6 @@ public:
             GLfloat gl_ang3 = (GLfloat) camera_pos_cpu[5];
             GLfloat gl_time = (GLfloat) camera_pos_cpu[6];
             GLfloat gl_light_z = (GLfloat) camera_pos_cpu[7];
-            GLfloat gl_cloud_t = (GLfloat) camera_pos_cpu[8];
             GLfloat gl_width = (GLfloat) objects.frame_width;
             GLfloat gl_height = (GLfloat) objects.frame_height;
             
@@ -426,9 +425,6 @@ public:
             
             GLint loc_lz = glGetUniformLocation(objects.program, "light_z");
             glUniform1fv(loc_lz, 1, &gl_light_z);
-            
-            GLint loc_ct = glGetUniformLocation(objects.program, "cloud_t");
-            glUniform1fv(loc_ct, 1, &gl_cloud_t);
             
             GLint loc_w = glGetUniformLocation(objects.program, "width");
             glUniform1fv(loc_w, 1, &gl_width);
@@ -517,8 +513,8 @@ public:
     }
 private:
     float cam_x, cam_y, cam_z, ang1, ang2, ang3;
-    float camera_pos_cpu[9];
+    float camera_pos_cpu[8];
 };
 
-REGISTER_KERNEL_BUILDER(Name("OceanicStillCloud").Device(DEVICE_GPU), OceanicStillCloudOpGpu);
+REGISTER_KERNEL_BUILDER(Name("OceanicSimpleProxy").Device(DEVICE_GPU), OceanicSimpleProxyOpGpu);
 

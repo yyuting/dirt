@@ -36,15 +36,32 @@ def get_hill():
         height=canvas_height, width=canvas_width, channels=3
     ), camera_pos
 
+def get_oceanic_simple_proxy():
+
+    square_vertices = tf.constant([[-1, -1, 0, 1], [-1, 1, 0, 1], [1, 1, 0, 1], [1, -1, 0, 1]], dtype=tf.float32)
+
+    #background = skimage.io.imread('/n/fs/shaderml/datas_oceanic/test_img/test_middle_ground00000.png')
+    #background = tf.constant(skimage.img_as_float(background), dtype=tf.float32)
+    background = tf.random_normal([canvas_height, canvas_width, 3], dtype=tf.float32)
+    
+    camera_pos = tf.placeholder(tf.float32, 8)
+    
+    return dirt.oceanic_simple_proxy(
+        vertices=square_vertices,
+        faces=[[0, 1, 2], [0, 2, 3]],
+        vertex_colors=tf.ones([4, 3]),
+        background=background,
+        camera_pos = camera_pos,
+        height=canvas_height, width=canvas_width, channels=3
+    ), camera_pos
+
 
 def main():
     
-    node, camera = get_hill()
-    camera_val = np.load('/n/fs/shaderml/OpenSfM/data/hill1_00_full/dense_start_00270.npy')
+    node, camera = get_oceanic_simple_proxy()
     sess = tf.Session()
-    single_camera_arr = np.empty(12)
     
-    single_camera_arr = camera_val[0].reshape(12)
+    single_camera_arr = np.array([0.0, 150.0, 0.0, 0.0, 0.3, 0.0, 0.0, 1.5])
     feed_dict = {camera: single_camera_arr}
     
     arr = sess.run(node, feed_dict=feed_dict)

@@ -69,7 +69,10 @@ def main():
     if par_mode.startswith('ocean'):
         canvas_width = 1024
         canvas_height = 768
-        par_dims = 9
+        if sys.argv[5] == 'oceanic_still_cloud':
+            par_dims = 9
+        else:
+            par_dims = 8
         nsamples = 100
     elif par_mode.startswith('hill'):
         canvas_width = 960
@@ -100,7 +103,7 @@ def main():
         
     feed_dict = {}
         
-    if True:
+    if False:
         
         if is_opt_flow:
             ini_round_freq = 1
@@ -302,6 +305,50 @@ def main():
             os.system('ffmpeg -i %s -r 30 -c:v libx264 -preset slow -crf 0 -r 30 %s'%(os.path.join(outdir, 'test_%s_%05d' % (prefix, ind_v) + '_%05d.png'), os.path.join(outdir, 'test_%s_%05d_video.mp4' % (prefix, ind_v))))
         
         np.save(os.path.join(outdir, 'test_%s_camera_pos.npy' % prefix), test_render_par)
+        
+    if True:
+
+        nframes = 30
+        test_render_par = np.empty([nframes, par_dims])
+        speed = np.zeros(8)
+        # x speed
+        speed[0] = -150.0
+        # y speed
+        speed[1] = -50.0
+        # z speed
+        speed[2] = 150.0
+        # ang1 speed
+        speed[3] = -0.1
+        # ang2 speed
+        speed[4] = -0.2
+        # ang3 speed
+        speed[5] = -0.1
+        speed[6] = 1
+        
+        ini_camera_pos_val = np.random.random(8)
+        ini_camera_pos_scale = np.array([1000, 700, 1000, 0.5, 2*np.pi, 0.4, 180, 2.0])
+        ini_camera_pos_bias = np.array([0, 100, 0, -0.2, 0, -0.2, 0.0, 0.2])
+        
+        ini_camera_pos_val *= ini_camera_pos_scale
+        ini_camera_pos_val += ini_camera_pos_bias
+        
+        print(ini_camera_pos_val)
+        
+
+        for i in range(nframes):
+            camera_pos_val = ini_camera_pos_val + i / 30 * speed
+            img[:] = 0.0
+            for _ in range(nsamples):
+                dirt_pixels = sess.run(render_node, feed_dict={camera_pos: camera_pos_val})
+                img += dirt_pixels
+            img /= nsamples
+            skimage.io.imsave(os.path.join(outdir, 'test_%s_%05d.png' % (prefix, i)), np.clip(img, 0.0, 1.0))
+            print(i)
+        
+        video_name = os.path.join(outdir, 'test_%s_video.mp4' % prefix)
+        if os.path.exists(video_name):
+            os.remove(video_name)
+        os.system('ffmpeg -i %s -r 30 -c:v libx264 -preset slow -crf 0 -r 30 %s'%(os.path.join(outdir, 'test_' + prefix + '_%05d.png'), video_name))
         
     
 if __name__ == '__main__':
